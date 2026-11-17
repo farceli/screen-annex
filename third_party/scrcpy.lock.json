@@ -1,0 +1,82 @@
+{
+  "scrcpy_version": "5.0.1",
+  "release_url": "https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1",
+  "binaries": {
+    "macos-aarch64": {
+      "file": "scrcpy-macos-aarch64-v5.0.1.tar.gz",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-macos-aarch64-v5.0.1.tar.gz",
+      "sha256": "33611e51977a8289e2e124b220f727895181ef2eb9060e0987a4dc2db9cf0d6b"
+    },
+    "macos-x86_64": {
+      "file": "scrcpy-macos-x86_64-v5.0.1.tar.gz",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-macos-x86_64-v5.0.1.tar.gz",
+      "sha256": "31a5467a9e907f162b093267cbbab1276b15c6e709c2ea8159566a8d165beb50"
+    },
+    "windows-x86_64": {
+      "file": "scrcpy-win64-v5.0.1.zip",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-win64-v5.0.1.zip",
+      "sha256": "b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5"
+    }
+  },
+  "sources": {
+    "scrcpy": {
+      "version": "5.0.1",
+      "file": "scrcpy-v5.0.1-source.tar.gz",
+      "url": "https://codeload.github.com/Genymobile/scrcpy/tar.gz/refs/tags/v5.0.1",
+      "sha256": "a24b996ac23d0f674d3237c00b39a97829d8acbe9e1657a6c216fd51ea488ee5",
+      "license": "Apache-2.0"
+    },
+    "ffmpeg": {
+      "version": "9.0.2",
+      "file": "ffmpeg-9.0.2.tar.xz",
+      "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+      "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+      "license": "LGPL-2.1-or-later"
+    },
+    "sdl": {
+      "version": "3.4.18",
+      "file": "sdl-3.4.18.tar.gz",
+      "url": "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.18.tar.gz",
+      "sha256": "c4b08b950bd29d83caae0ab8d884298d27046a9d30700fb42841c50992665c90",
+      "license": "Zlib"
+    },
+    "dav1d": {
+      "version": "1.5.4",
+      "file": "dav1d-1.5.4.tar.xz",
+      "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz",
+      "sha256": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5",
+      "license": "BSD-2-Clause"
+    },
+    "libusb": {
+      "version": "1.0.30",
+      "file": "libusb-1.0.30.tar.gz",
+      "url": "https://github.com/libusb/libusb/archive/refs/tags/v1.0.30.tar.gz",
+      "sha256": "2ae28adb0bb9558c86135c4e1c11b320b0805461e207a64a6e520a114094bf07",
+      "license": "LGPL-2.1-or-later"
+    }
+  },
+  "verification": "Release archive digests from official GitHub release API and SHA256SUMS.txt; dependency hashes from the matching v5.0.1 app/deps scripts. Source tarball SHA256 recorded from the official tag download.",
+  "macos_window_patch": {
+    "materials": {
+      "build_libusb_macos.sh": "1065c0f23787643d1b90cb7252bd41a6cdc062919c855aece526185ab3a769bb",
+      "scrcpy-macos-titlebar.patch": "05c585d7eeb3aee7b07879c96a086a057e5a1666b301c99379008e96eea0968e",
+      "rebuild_scrcpy.sh": "80b954f10f85d9362648de20f5a3c802ccff653861e07e2bc7b55219cb508a61"
+    },
+    "clients": {
+      "macos-aarch64": {
+        "sha256": "5f211ebe36e4c1f7ad360044530075bfb95421f15d184ced905523114c484f4d",
+        "code_sha256": "c03745f3feafac7d40efb55f7a8b62227aad0011042272471850fe9c4ed83b5a"
+      },
+      "macos-x86_64": {
+        "sha256": "be81476e29348a98b073b4a1e421f2774ff3d5cfc7afe9e0b820cce85e766d2f",
+        "code_sha256": "3feeebab11e053639f265df49f05524566ec88952d8bfc8ab571be75426fc750"
+      }
+    }
+  },
+  "windows_window_patch": {
+    "materials": {
+      "scrcpy-windows-events.patch": "b8d7771c3767c25da8ee1b94c71644b9d0013d591d763c3a4f309c6bf9dd2d4a"
+    },
+    "client_sha256": "67484176480c34000310ac4666f1bf5457df00be9b30ddba995c185fbe26a554"
+  }
+}

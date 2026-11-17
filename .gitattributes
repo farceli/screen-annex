@@ -1,0 +1,13 @@
+# Use consistent line endings for project code and documentation.
+* text=auto eol=lf
+
+# Keep patch context lines and upstream license text byte-for-byte.
+*.patch -text whitespace=-blank-at-eol,-blank-at-eof
+/Resources/compliance/licenses/** -text whitespace=-blank-at-eol,-blank-at-eof
+/Resources/compliance/*.txt -text
+*.icns binary
+*.h264 binary
+*.tar.gz binary
+*.tar.xz binary
+/third_party/scrcpy-macos/*/scrcpy binary
+/third_party/scrcpy-windows/*/scrcpy.exe binary

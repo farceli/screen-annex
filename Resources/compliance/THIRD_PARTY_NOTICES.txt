@@ -1,0 +1,50 @@
+Screen Annex — Android 后端第三方软件声明
+
+Screen Annex 的 Android 投屏功能基于 scrcpy。scrcpy 由 Genymobile、Romain Vimont 及其贡献者开发。
+本产品是独立集成，不表示获得上述作者、Google、SDL、VideoLAN 或华为的赞助、认证或合作。
+Screen Annex 外层界面与现有鸿蒙后端不因集成 scrcpy 自动改用 Apache 2.0。
+
+1. scrcpy 5.0.1 — Apache License 2.0
+Copyright (C) 2018 Genymobile
+Copyright (C) 2018-2026 Romain Vimont
+来源：https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1
+完整许可：licenses/scrcpy-LICENSE.txt
+对应完整源码：sources/scrcpy-v5.0.1-source.tar.gz
+macOS 客户端的 Cocoa 标题、窗口磁吸和文件拖放补丁见 scrcpy-macos-titlebar.patch。Windows 客户端使用 scrcpy-windows-events.patch；Android 设备端沿用官方发行。详见 SCRCPY_CHANGES.md。
+此固定版本的源码归档根目录没有额外 NOTICE 文件；原始 LICENSE 与归档内所有归属声明均保留。
+
+2. FFmpeg 9.0.2 — LGPL 2.1 or later（本发行按 LGPL 2.1 履行）
+Copyright (c) the FFmpeg developers and the individual file authors.
+来源：https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+完整许可：licenses/FFmpeg-LGPL-2.1.txt
+对应完整源码：sources/ffmpeg-9.0.2.tar.xz
+scrcpy 上游固定版本 app/deps/ffmpeg.sh 保存实际构建参数；未启用 --enable-gpl、--enable-version3 或 --enable-nonfree。
+macOS 官方包采用静态链接；Windows x64 官方包使用 FFmpeg DLL，dav1d 静态链接到 FFmpeg。
+我们随包提供对应源码、使用这些库的完整 scrcpy 源码，以及构建和重新链接说明；详见 REBUILDING.md。
+
+3. libusb 1.0.30 — LGPL 2.1 or later（本发行按 LGPL 2.1 履行）
+Copyright: libusb contributors; individual authors and notices are preserved in the complete source archive.
+来源：https://github.com/libusb/libusb/tree/v1.0.30
+完整许可：licenses/libusb-COPYING.txt
+对应完整源码：sources/libusb-1.0.30.tar.gz
+macOS scrcpy 静态链接；Windows scrcpy 使用 libusb-1.0.dll。
+
+4. SDL 3.4.18 — zlib license
+Copyright (C) 1997-2026 Sam Lantinga and others; exact upstream notice is retained in licenses/SDL-LICENSE.txt.
+来源：https://github.com/libsdl-org/SDL/tree/release-3.4.18
+对应完整源码：sources/sdl-3.4.18.tar.gz
+
+5. dav1d 1.5.4 — BSD 2-Clause
+Copyright © 2018-2025, VideoLAN and dav1d authors; exact upstream notice is retained in licenses/dav1d-COPYING.txt.
+来源：https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/
+对应完整源码：sources/dav1d-1.5.4.tar.xz
+
+6. zlib — zlib license
+Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler.
+完整声明：licenses/zlib-LICENSE.txt（zlib 1.3.1 上游许可文本，保留原始归属）。
+zlib 由平台/工具链提供，上游 FFmpeg 构建开启 zlib。该宽松许可无需提供重新链接源码。
+不以此声明声称能够从剥离后的官方二进制确定平台 zlib 的精确版本。
+
+各组件原始声明、免责条款和源码内作者信息均保留。上游组件按各自许可证提供，不提供额外上游担保。
+完整来源、固定版本和 SHA-256：scrcpy.lock.json；落盘文件完整性清单：manifest.json。
+Android SDK Platform Tools 和鸿蒙 SDK 组件由用户单独安装。Windows 的 LibVLCSharp 和 LibVLC 由 NuGet 恢复，详见项目 THIRD_PARTY.md。

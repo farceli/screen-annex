@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="HosMirror.Windows.MirrorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vlc="using:LibVLCSharp.Platforms.Windows"
+        Title="Screen Annex">
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="42"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid x:Name="TitleStrip" Height="42">
+            <TextBlock x:Name="CenteredTitle" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Margin="44,0,144,0"/>
+        </Grid>
+        <Button x:Name="HomeButton" Content="⌂" Width="32" Padding="0" Margin="6,0,0,0"
+                HorizontalAlignment="Left" VerticalAlignment="Center" Click="OnHome"
+                ToolTipService.ToolTip="桌面" AutomationProperties.Name="回到手机桌面"/>
+        <Button x:Name="RecentButton" Content="▤" Width="32" Padding="0" Margin="40,0,0,0"
+                HorizontalAlignment="Left" VerticalAlignment="Center" Click="OnRecent"
+                ToolTipService.ToolTip="多任务" AutomationProperties.Name="手机多任务"/>
+        <ToggleButton x:Name="PinButton" Width="32" Padding="0" Margin="74,0,0,0"
+                      HorizontalAlignment="Left" VerticalAlignment="Center" Click="OnPin"
+                      ToolTipService.ToolTip="置顶" AutomationProperties.Name="投屏窗口置顶">
+            <SymbolIcon Symbol="Pin"/>
+        </ToggleButton>
+        <Button x:Name="MoreButton" Content="⋯" HorizontalAlignment="Left" VerticalAlignment="Center"
+                Margin="108,0,0,0" Width="32" Padding="0" AutomationProperties.Name="更多投屏操作">
+            <Button.Flyout>
+                <MenuFlyout>
+                    <MenuFlyoutItem Text="返回" Click="OnBack"/>
+                    <MenuFlyoutItem Text="电源" Click="OnPower"/>
+                    <MenuFlyoutItem Text="旋转" Click="OnRotate"/>
+                    <MenuFlyoutItem Text="截图" Click="OnScreenshot"/>
+                    <MenuFlyoutItem x:Name="RecordItem" Text="开始录制" Click="OnRecord"/>
+                    <MenuFlyoutItem Text="从手机复制剪贴板" Click="OnCopyFromDevice"/>
+                    <MenuFlyoutItem Text="发送文本…" Click="OnText"/>
+                    <MenuFlyoutItem Text="传输文件…" Click="OnPickFiles"/>
+                    <MenuFlyoutItem Text="取消传输" Click="OnCancelTransfer"/>
+                    <MenuFlyoutItem Text="传输记录…" Click="OnTransferHistory"/>
+                    <MenuFlyoutItem Text="断开投屏" Click="OnDisconnect"/>
+                </MenuFlyout>
+            </Button.Flyout>
+        </Button>
+        <Grid x:Name="Surface" Grid.Row="1" Background="Black" AllowDrop="True"
+              DragOver="OnDragOver" Drop="OnDrop"
+              PointerPressed="OnPointerPressed" PointerMoved="OnPointerMoved" PointerReleased="OnPointerReleased"
+              PointerCaptureLost="OnPointerCaptureLost" PointerWheelChanged="OnPointerWheel">
+            <TextBox x:Name="InputBox" Opacity="0" Width="2" Height="2" HorizontalAlignment="Left"
+                     VerticalAlignment="Top" IsTabStop="False" IsHitTestVisible="False"
+                     AutomationProperties.Name="手机键盘输入" IsSpellCheckEnabled="False"
+                     IsTextPredictionEnabled="False" PreviewKeyDown="OnInputKey" TextChanged="OnInputChanged"
+                     TextCompositionStarted="OnCompositionStarted" TextCompositionEnded="OnCompositionEnded"/>
+            <vlc:VideoView x:Name="Video" IsHitTestVisible="False"/>
+            <Grid x:Name="ConnectionOverlay">
+                <Grid.Background>
+                    <AcrylicBrush TintColor="#EEEEEE" TintOpacity="0.82" FallbackColor="#F3F3F3"/>
+                </Grid.Background>
+                <StackPanel RequestedTheme="Light" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                    <TextBlock x:Name="ConnectionStatus" Text="正在连接" TextWrapping="Wrap" Margin="16,0"
+                               HorizontalAlignment="Center" TextAlignment="Center"/>
+                    <TextBlock x:Name="ConnectionDevice" FontSize="22" HorizontalAlignment="Center"/>
+                    <Button x:Name="RetryButton" Content="重新连接" Visibility="Collapsed"
+                            Click="OnRetry" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+            <InfoBar x:Name="Notice" Margin="12" VerticalAlignment="Bottom" IsOpen="False"
+                     IsClosable="False" Tapped="OnDismissNotice" AutomationProperties.Name="投屏与文件传输状态">
+                <InfoBar.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="取消传输" Click="OnCancelTransfer"/>
+                        <MenuFlyoutItem Text="传输记录…" Click="OnTransferHistory"/>
+                    </MenuFlyout>
+                </InfoBar.ContextFlyout>
+            </InfoBar>
+        </Grid>
+    </Grid>
+</Window>

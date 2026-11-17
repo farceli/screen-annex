@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 仅测试新增可移植进程后端，不伪装为 WinUI 目标平台构建。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../HosMirrorCoreTests/Resources/sample.h264" Link="sample.h264" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../windows/HosMirror.Windows/H264Recording.cs" Link="H264Recording.cs" />
+    <Compile Include="../../windows/HosMirror.Windows/MirrorPreferences.cs" Link="MirrorPreferences.cs" />
+    <Compile Include="../../windows/HosMirror.Windows/DeviceFileDelivery.cs" Link="DeviceFileDelivery.cs" />
+    <Compile Include="../../windows/HosMirror.Windows/ApkManifest.cs" Link="ApkManifest.cs" />
+    <!-- 直接编译生产文件，避免测试复制一套实现。 -->
+    <Compile Include="../../windows/HosMirror.Windows/DeviceTools.cs" Link="DeviceTools.cs" />
+    <Compile Include="../../windows/HosMirror.Windows/AndroidBackend.cs" Link="AndroidBackend.cs" />
+  </ItemGroup>
+</Project>

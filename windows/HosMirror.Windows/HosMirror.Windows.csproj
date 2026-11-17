@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>HosMirror.Windows</RootNamespace>
+    <!-- 产品显示名与程序集命名空间独立，避免影响 XAML 类型和 ABI。 -->
+    <Product>Screen Annex</Product>
+    <AssemblyTitle>Screen Annex</AssemblyTitle>
+    <AssemblyName>ScreenAnnex</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250909003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <!-- WinUI 包已包含核心 API，不能同时引用同名核心程序集。 -->
+    <PackageReference Include="LibVLCSharp.WinUI" Version="3.10.2" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 先在 core 目录构建 Windows MSVC 目标的 Release DLL。XML 注释不能包含连续连字符。 -->
+    <None Include="..\..\core\target\x86_64-pc-windows-msvc\release\hosmirror_core.dll"
+          Condition="Exists('..\..\core\target\x86_64-pc-windows-msvc\release\hosmirror_core.dll')"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="hosmirror_core.dll" />
+    <None Include="..\..\core\target\release\hosmirror_core.dll"
+          Condition="!Exists('..\..\core\target\x86_64-pc-windows-msvc\release\hosmirror_core.dll') And Exists('..\..\core\target\release\hosmirror_core.dll')"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="hosmirror_core.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 仅复制可发布的许可材料，用户本机的 HarmonyOS SDK 保持独立。 -->
+    <Content Include="..\..\LICENSE"
+             Link="LICENSE"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Resources\compliance\**\*"
+             Link="Resources\compliance\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <!-- Android 仅带 Windows x64 运行包；compliance 中的完整许可证与源码由上面的通配规则保留。 -->
+    <Content Include="..\..\Resources\scrcpy\windows-x86_64\**\*"
+             Exclude="..\..\Resources\scrcpy\windows-x86_64\scrcpy.exe"
+             Link="Resources\scrcpy\windows-x86_64\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <!-- 托管窗口使用本项目的拖放/首帧补丁。ADB、server 和 DLL 保持上游版本。 -->
+    <Content Include="..\..\third_party\scrcpy-windows\windows-x86_64\scrcpy.exe"
+             Link="Resources\scrcpy\windows-x86_64\scrcpy.exe"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

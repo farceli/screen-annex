@@ -1,0 +1,201 @@
+--- a/app/src/screen.h
++++ b/app/src/screen.h
+@@ -89,6 +89,9 @@
+     // rectangle of the content (excluding black borders)
+     struct SDL_FRect rect;
+     bool window_shown;
++#ifdef _WIN32
++    bool hosmirror_first_frame; // Reports successful rendering once per process.
++#endif
+ 
+     // only accessed from the thread calling sc_frame_sink_ops functions
+     struct sc_stream_session current_session;
+--- a/app/src/screen.c
++++ b/app/src/screen.c
+@@ -2,6 +2,12 @@
+ 
+ #include <assert.h>
+ #include <string.h>
++#ifdef _WIN32
++#include <stdio.h>
++#include <stdlib.h>
++#include <windows.h>
++#include <commctrl.h>
++#endif
+ #include <SDL3/SDL.h>
+ 
+ #include "events.h"
+@@ -13,6 +19,48 @@
+ #define DISPLAY_MARGINS 96
+ 
+ #define DOWNCAST(SINK) container_of(SINK, struct sc_screen, frame_sink)
++
++#ifdef _WIN32
++// Win32 title-bar maximize is handled on the SDL UI thread. When grouping
++// is enabled by the host, notify it instead of applying single-window zoom.
++static LRESULT CALLBACK
++sc_hosmirror_caption(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
++                     UINT_PTR id, DWORD_PTR data) {
++    if (message == WM_NCDESTROY) {
++        RemoveWindowSubclass(window, sc_hosmirror_caption, id);
++    } else if (message == WM_NCLBUTTONDBLCLK && wparam == HTCAPTION) {
++        DWORD_PTR ignored;
++        // The host responds synchronously with a Boolean. Timeout preserves
++        // native behavior if the host is busy or has already exited.
++        HWND host = (HWND) (uintptr_t) data;
++        if (SendMessageTimeoutW(host, WM_APP + 2, (WPARAM) window, 0,
++                               SMTO_ABORTIFHUNG | SMTO_BLOCK, 180, &ignored)
++                && ignored) {
++            return 0;
++        }
++    }
++    return DefSubclassProc(window, message, wparam, lparam);
++}
++
++static void
++sc_hosmirror_setup_caption(SDL_Window *window) {
++    const char *target = SDL_getenv("HOSMIRROR_WINDOWS_HOST");
++    if (!target || !*target) {
++        return;
++    }
++    char *end;
++    uintptr_t host = (uintptr_t) strtoull(target, &end, 16);
++    if (!host || *end) {
++        return;
++    }
++    SDL_PropertiesID props = SDL_GetWindowProperties(window);
++    HWND hwnd = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER,
++                                      NULL);
++    if (hwnd) {
++        SetWindowSubclass(hwnd, sc_hosmirror_caption, 1, (DWORD_PTR) host);
++    }
++}
++#endif
+ 
+ static void
+ set_aspect_ratio(struct sc_screen *screen, struct sc_size content_size) {
+@@ -272,6 +320,9 @@
+     SDL_Texture *texture = screen->is_icon_active
+                          ? screen->icon_tex
+                          : sc_texture_get(&screen->tex);
++#ifdef _WIN32
++    bool video_drawn = false;
++#endif
+     if (!texture) {
+         goto end;
+     }
+@@ -335,11 +386,26 @@
+                                       angle, NULL, flip);
+     }
+ 
++#ifdef _WIN32
++    video_drawn = ok && !screen->is_icon_active;
++#endif
+     if (!ok) {
+         LOGE("Could not render texture: %s", SDL_GetError());
+     }
+ 
+ end:
++#ifdef _WIN32
++    // Only the first real texture presentation marks this session ready.
++    if (!screen->hosmirror_first_frame && video_drawn
++            && SDL_getenv("HOSMIRROR_WINDOWS_EVENTS")) {
++        if (SDL_RenderPresent(renderer)) {
++            screen->hosmirror_first_frame = true;
++            fputs("HOSMIRROR_WINDOWS FIRST_FRAME\n", stdout);
++            fflush(stdout);
++        }
++        return;
++    }
++#endif
+     sc_sdl_render_present(renderer);
+ }
+ 
+@@ -521,6 +587,9 @@
+ 
+     screen->resize_pending = false;
+     screen->window_shown = false;
++#ifdef _WIN32
++    screen->hosmirror_first_frame = false;
++#endif
+     screen->paused = false;
+     screen->resume_frame = NULL;
+     screen->orientation = SC_ORIENTATION_0;
+@@ -806,6 +875,9 @@
+     }
+ 
+     screen->window_shown = true;
++#ifdef _WIN32
++    sc_hosmirror_setup_caption(screen->window);
++#endif
+     sc_sdl_show_window(screen->window);
+     sc_screen_update_content_rect(screen);
+ }
+@@ -1168,8 +1240,57 @@
+     (void) ok; // ignore failure
+ }
+ 
++#ifdef _WIN32
++// A managed scrcpy client reports drop batches over its existing stdout pipe.
++// Encoding the UTF-8 bytes keeps control characters and arbitrary file names
++// out of the framing. Standalone scrcpy keeps its original drag/drop behavior.
++static bool
++sc_hosmirror_handle_drop(const SDL_Event *event) {
++    if (event->type != SDL_EVENT_DROP_BEGIN
++            && event->type != SDL_EVENT_DROP_FILE
++            && event->type != SDL_EVENT_DROP_COMPLETE) {
++        return false;
++    }
++    if (!SDL_getenv("HOSMIRROR_WINDOWS_EVENTS")) {
++        return false;
++    }
++    if (event->type == SDL_EVENT_DROP_FILE && event->drop.data) {
++        static const char hex[] = "0123456789abcdef";
++        size_t len = strlen(event->drop.data);
++        if (len <= 32768 * 4) {
++            char *line = malloc(2 * len + 32);
++            if (!line) {
++                LOG_OOM();
++                return true;
++            }
++            const char prefix[] = "HOSMIRROR_WINDOWS DROP ";
++            memcpy(line, prefix, sizeof(prefix) - 1);
++            size_t offset = sizeof(prefix) - 1;
++            for (size_t i = 0; i < len; ++i) {
++                unsigned char byte = (unsigned char) event->drop.data[i];
++                line[offset++] = hex[byte >> 4];
++                line[offset++] = hex[byte & 15];
++            }
++            line[offset++] = '\n';
++            line[offset] = '\0';
++            fputs(line, stdout);
++            free(line);
++        }
++    } else if (event->type == SDL_EVENT_DROP_COMPLETE) {
++        fputs("HOSMIRROR_WINDOWS DROP_END\n", stdout);
++    }
++    fflush(stdout);
++    return true;
++}
++#endif
++
+ void
+ sc_screen_handle_event(struct sc_screen *screen, const SDL_Event *event) {
++#ifdef _WIN32
++    if (sc_hosmirror_handle_drop(event)) {
++        return;
++    }
++#endif
+     switch (event->type) {
+         case SC_EVENT_OPEN_WINDOW: {
+             struct sc_size *size = event->user.data1;
+--- a/app/meson.build
++++ b/app/meson.build
+@@ -177,6 +177,7 @@
+ if host_machine.system() == 'windows'
+     dependencies += cc.find_library('mingw32')
+     dependencies += cc.find_library('ws2_32')
++    dependencies += cc.find_library('comctl32')
+ endif
+ 
+ check_functions = [

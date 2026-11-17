@@ -1,0 +1,676 @@
+--- a/app/meson.build
++++ b/app/meson.build
+@@ -98,6 +98,9 @@
+         'src/sys/unix/process.c',
+     ]
+     if host_machine.system() == 'darwin'
++        # HosMirror: link the Cocoa title-bar styling for macOS only.
++        add_languages('objc', native: false)
++        src += ['src/sys/macos/hosmirror_titlebar.m']
+         feature_test_macros += '-D_DARWIN_C_SOURCE'
+     endif
+ endif
+@@ -149,6 +152,11 @@
+     dependency('libswresample', static: static),
+     dependency('sdl3', version: '>= 3.2.0', static: static),
+ ]
++
++# HosMirror's Cocoa title uses native AppKit controls.
++if host_machine.system() == 'darwin'
++    dependencies += dependency('appleframeworks', modules: ['AppKit', 'CoreText'])
++endif
+ 
+ if v4l2_support
+     dependencies += dependency('libavdevice', static: static)
+--- a/app/src/screen.c
++++ b/app/src/screen.c
+@@ -9,6 +9,10 @@
+ #include "options.h"
+ #include "util/log.h"
+ #include "util/sdl.h"
++
++#ifdef __APPLE__
++# include "sys/macos/hosmirror_titlebar.h"
++#endif
+ 
+ #define DISPLAY_MARGINS 96
+ 
+@@ -807,6 +811,16 @@
+ 
+     screen->window_shown = true;
+     sc_sdl_show_window(screen->window);
++#ifdef __APPLE__
++    // HosMirror: style the title after Cocoa lays out the native titlebar.
++    if (!screen->req.fullscreen) {
++        sc_hosmirror_style_window_title(screen->window);
++    }
++    // HosMirror: synchronize the position and visibility of grouped windows.
++    sc_hosmirror_setup_window_snap(screen->window);
++    sc_hosmirror_update_window_aspect(screen->window,
++        (double) screen->content_size.width / screen->content_size.height);
++#endif
+     sc_screen_update_content_rect(screen);
+ }
+ 
+@@ -850,6 +864,9 @@
+     SDL_GL_DestroyContext(screen->gl_context);
+ #endif
+     SDL_DestroyRenderer(screen->renderer);
++#ifdef __APPLE__
++    sc_hosmirror_destroy_window_snap(screen->window);
++#endif
+     SDL_DestroyWindow(screen->window);
+     sc_fps_counter_destroy(&screen->fps_counter);
+     sc_frame_buffer_destroy(&screen->fb);
+@@ -899,6 +916,12 @@
+                  bool resize) {
+     assert(screen->video);
+ 
++#ifdef __APPLE__
++    // The group owns window geometry while a phone rotation still updates video.
++    sc_hosmirror_update_window_aspect(screen->window,
++        (double) new_content_size.width / new_content_size.height);
++    resize = resize && !sc_hosmirror_window_is_snapped(screen->window);
++#endif
+     if (resize) {
+         if (is_windowed(screen)) {
+             resize_for_content(screen, screen->content_size, new_content_size);
+@@ -1055,6 +1078,9 @@
+ void
+ sc_screen_toggle_fullscreen(struct sc_screen *screen) {
+     assert(screen->video);
++#ifdef __APPLE__
++    if (sc_hosmirror_window_is_snapped(screen->window)) return;
++#endif
+ 
+     bool req_fullscreen =
+         !(SDL_GetWindowFlags(screen->window) & SDL_WINDOW_FULLSCREEN);
+@@ -1071,6 +1097,9 @@
+ void
+ sc_screen_resize_to_fit(struct sc_screen *screen) {
+     assert(screen->video);
++#ifdef __APPLE__
++    if (sc_hosmirror_window_is_snapped(screen->window)) return;
++#endif
+ 
+     if (!is_windowed(screen)) {
+         return;
+@@ -1135,6 +1164,9 @@
+ void
+ sc_screen_resize_to_pixel_perfect(struct sc_screen *screen) {
+     assert(screen->video);
++#ifdef __APPLE__
++    if (sc_hosmirror_window_is_snapped(screen->window)) return;
++#endif
+ 
+     if (!is_windowed(screen)) {
+         return;
+@@ -1170,6 +1202,13 @@
+ 
+ void
+ sc_screen_handle_event(struct sc_screen *screen, const SDL_Event *event) {
++#ifdef __APPLE__
++    // 在上游文件推送前拦截本窗口的拖放。只读、相机与断线窗口不能提交文件。
++    if (sc_hosmirror_handle_file_drop(screen->window, event,
++            screen->im.controller && !screen->im.camera && !screen->disconnected)) {
++        return;
++    }
++#endif
+     switch (event->type) {
+         case SC_EVENT_OPEN_WINDOW: {
+             struct sc_size *size = event->user.data1;
+--- /dev/null
++++ b/app/src/sys/macos/hosmirror_titlebar.h
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: Apache-2.0
++// HosMirror addition: macOS window presentation, independent of device I/O.
++#ifndef SC_HOSMIRROR_TITLEBAR_H
++#define SC_HOSMIRROR_TITLEBAR_H
++
++#include <SDL3/SDL_video.h>
++#include <SDL3/SDL_events.h> // 复用 Cocoa 经 SDL 交付的文件拖放事件。
++
++void sc_hosmirror_style_window_title(SDL_Window *window);
++void sc_hosmirror_setup_window_snap(SDL_Window *window);
++void sc_hosmirror_update_window_aspect(SDL_Window *window, double aspect);
++bool sc_hosmirror_window_is_snapped(SDL_Window *window);
++void sc_hosmirror_destroy_window_snap(SDL_Window *window);
++bool sc_hosmirror_handle_file_drop(SDL_Window *window, const SDL_Event *event, bool enabled); // 仅 HosMirror 管理的窗口接管拖放。
++
++#endif
+--- /dev/null
++++ b/app/src/sys/macos/hosmirror_titlebar.m
+@@ -0,0 +1,533 @@
++// SPDX-License-Identifier: Apache-2.0
++// HosMirror addition: draw a centered title in the existing SDL Cocoa window.
++#import <AppKit/AppKit.h>
++#import <CoreText/CoreText.h>
++
++#include <SDL3/SDL_video.h>
++
++#include "hosmirror_titlebar.h"
++
++@interface HosMirrorCenteredTitle : NSView {
++    NSAttributedString *_title;
++}
++- (instancetype)initWithFrame:(NSRect)frame title:(NSAttributedString *)title;
++@end
++
++@implementation HosMirrorCenteredTitle
++
++- (instancetype)initWithFrame:(NSRect)frame title:(NSAttributedString *)title {
++    self = [super initWithFrame:frame];
++    if (self) _title = [title copy];
++    return self;
++}
++
++- (void)dealloc {
++    [_title release];
++    [super dealloc];
++}
++
++// Keep native button hit testing, title dragging, and double-clicks.
++- (NSView *)hitTest:(NSPoint)point {
++    (void)point;
++    return nil;
++}
++
++- (void)viewDidChangeEffectiveAppearance {
++    [super viewDidChangeEffectiveAppearance];
++    self.needsDisplay = YES;
++}
++
++- (void)drawRect:(NSRect)dirty {
++    (void)dirty;
++    NSButton *close = [self.window standardWindowButton:NSWindowCloseButton];
++    NSButton *zoom = [self.window standardWindowButton:NSWindowZoomButton];
++    if (!close || !zoom) return;
++    NSRect buttons = NSUnionRect([self convertRect:close.bounds fromView:close],
++                                [self convertRect:zoom.bounds fromView:zoom]);
++    // Center on the entire window, with equal insets to keep the lights clear.
++    CGFloat centerX = [self convertPoint:NSMakePoint(NSWidth(self.window.frame) / 2, 0)
++                                fromView:nil].x;
++    CGFloat halfWidth = MIN(centerX - NSMinX(self.bounds), NSMaxX(self.bounds) - centerX);
++    halfWidth = MIN(halfWidth, centerX - NSMaxX(buttons) - 10);
++    if (halfWidth <= 0) return;
++
++    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)_title);
++    if (CTLineGetTypographicBounds(line, NULL, NULL, NULL) > 2 * halfWidth) {
++        NSAttributedString *ellipsis = [[[NSAttributedString alloc] initWithString:@"…"
++                                      attributes:[_title attributesAtIndex:_title.length - 1
++                                                              effectiveRange:NULL]] autorelease];
++        CTLineRef token = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)ellipsis);
++        CTLineRef truncated = CTLineCreateTruncatedLine(line, 2 * halfWidth, kCTLineTruncationEnd, token);
++        CFRelease(token);
++        CFRelease(line);
++        if (!truncated) return;
++        line = truncated;
++    }
++
++    // Center the ink itself, including fallback fonts for the corner brackets.
++    // NSTextField alignment can center its cell while its attributed text starts at the left.
++    NSRect ink = CTLineGetBoundsWithOptions(line, kCTLineBoundsUseGlyphPathBounds);
++    CGContextRef context = NSGraphicsContext.currentContext.CGContext;
++    CGContextSaveGState(context);
++    CGContextSetFillColorWithColor(context, NSColor.labelColor.CGColor);
++    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
++    CGContextSetTextPosition(context, centerX - NSMidX(ink), NSMidY(buttons) - NSMidY(ink));
++    CTLineDraw(line, context);
++    CGContextRestoreGState(context);
++    CFRelease(line);
++}
++
++@end
++
++void
++sc_hosmirror_style_window_title(SDL_Window *sdl_window) {
++    SDL_PropertiesID properties = SDL_GetWindowProperties(sdl_window);
++    NSWindow *window = (__bridge NSWindow *)SDL_GetPointerProperty(
++        properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
++    NSString *prefix = @"「Android」";
++    if (!window || !(window.styleMask & NSWindowStyleMaskTitled)
++                || ![window.title hasPrefix:[prefix stringByAppendingString:@" "]]) return;
++
++    // Attach to Cocoa chrome after SDL has shown the window and finalized its view tree.
++    NSView *titlebar = [window standardWindowButton:NSWindowCloseButton].superview;
++    if (!titlebar) return;
++    for (NSView *subview in titlebar.subviews) {
++        if ([subview.identifier isEqualToString:@"hosmirror.android-centered-title"]) return;
++    }
++    NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
++        initWithString:window.title
++        attributes:@{ NSFontAttributeName: [NSFont systemFontOfSize:12],
++                      (__bridge NSString *)kCTForegroundColorFromContextAttributeName: @YES }];
++    [title addAttribute:NSFontAttributeName value:[NSFont boldSystemFontOfSize:12]
++                   range:NSMakeRange(0, prefix.length)];
++
++    HosMirrorCenteredTitle *label = [[HosMirrorCenteredTitle alloc]
++        initWithFrame:titlebar.bounds title:title];
++    label.identifier = @"hosmirror.android-centered-title";
++    label.toolTip = window.title;
++    label.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++    [label setAccessibilityElement:NO]; // NSWindow keeps the full native accessibility title.
++    [titlebar addSubview:label];
++    window.titleVisibility = NSWindowTitleHidden;
++    [label release];
++    [title release];
++}
++
++// Each HosMirror child has its own local port. Standalone scrcpy uses the
++// original behavior when it is started without a window channel.
++static const char snap_property[] = "hosmirror.window.snap";
++
++// 原生悬浮条只在自身范围内接收鼠标，其他区域仍由 SDL 处理。
++@interface HosMirrorTransferToast : NSVisualEffectView
++@property(nonatomic, assign) id actionTarget; // 由窗口控制器持有视图，避免循环引用。
++@end
++
++@implementation HosMirrorTransferToast
++- (NSView *)hitTest:(NSPoint)point {
++    return [super hitTest:point] ? self : nil; // 整条提示都能点击，包括图标和留白。
++}
++- (BOOL)acceptsFirstMouse:(NSEvent *)event {
++    return YES; // 无需先点击投屏窗口激活，再点一次收起。
++}
++- (void)mouseDown:(NSEvent *)event {
++    [NSApp sendAction:@selector(dismissTransferToast:) to:self.actionTarget from:self]; // 点击只收起提示。
++}
++@end
++
++@interface HosMirrorWindowSnap : NSObject {
++    NSWindow *_window;
++    CFMessagePortRef _commands;
++    CFRunLoopSourceRef _source;
++    CFMessagePortRef _events;
++    id _monitor;
++    NSRect _target;
++    NSWindowCollectionBehavior _freeBehavior;
++    BOOL _freeMovable;
++    BOOL _freeMinimize;
++    BOOL _locked;
++    BOOL _dragging;
++    BOOL _applying;
++    BOOL _revealing;
++    double _aspect;
++    NSTimeInterval _lastDrag;
++    NSMutableArray<NSString *> *_dropPaths; // SDL 每次发送一个文件，完成事件到达后一起提交。
++    HosMirrorTransferToast *_toast; // 与 SDL 视频共享同一原生窗口。
++    NSDictionary *_toastState; // 只保留可见任务供点击和取消使用。
++    NSMenuItem *_historyItem; // 收起提示之后仍可从窗口菜单访问记录。
++    BOOL _managesTransfers; // 宿主收到就绪事件才替换原生拖放。
++}
++- (instancetype)initWithWindow:(NSWindow *)window channel:(NSString *)channel;
++- (void)applyCommand:(NSData *)data;
++- (void)updateAspect:(double)aspect;
++- (BOOL)isLocked;
++- (BOOL)handleDrop:(const SDL_Event *)event enabled:(BOOL)enabled; // 在 SDL 主线程处理整批路径。
++@end
++
++static CFDataRef
++receive_snap_command(CFMessagePortRef port, SInt32 id, CFDataRef data, void *context) {
++    (void)port;
++    (void)id;
++    if (data && CFDataGetLength(data) <= 65536) { // 悬浮消息包含文件名与简短结果。
++        [(__bridge HosMirrorWindowSnap *)context applyCommand:(__bridge NSData *)data];
++    }
++    return NULL; // The other process never waits for a reply.
++}
++
++@implementation HosMirrorWindowSnap
++
++- (instancetype)initWithWindow:(NSWindow *)window channel:(NSString *)channel {
++    self = [super init];
++    if (!self) return nil;
++    _window = window; // SDL retains the window until the snap controller is destroyed.
++    NSString *commands = [channel stringByAppendingString:@".commands"];
++    NSString *events = [channel stringByAppendingString:@".events"];
++    CFMessagePortContext context = {0, self, NULL, NULL, NULL};
++    _commands = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)commands,
++                                         receive_snap_command, &context, NULL);
++    _events = CFMessagePortCreateRemote(NULL, (__bridge CFStringRef)events);
++    if (_commands) _source = CFMessagePortCreateRunLoopSource(NULL, _commands, 0);
++    if (!_source || !_events) {
++        [self release];
++        return nil;
++    }
++    CFRunLoopAddSource(CFRunLoopGetMain(), _source, kCFRunLoopCommonModes);
++    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
++    [center addObserver:self selector:@selector(windowGeometryChanged:)
++                   name:NSWindowDidMoveNotification object:window];
++    [center addObserver:self selector:@selector(windowGeometryChanged:)
++                   name:NSWindowDidResizeNotification object:window];
++    [center addObserver:self selector:@selector(windowGeometryChanged:)
++                   name:NSWindowDidExitFullScreenNotification object:window];
++    [center addObserver:self selector:@selector(windowGeometryChanged:)
++                   name:NSWindowDidMiniaturizeNotification object:window];
++    [center addObserver:self selector:@selector(windowActivated:)
++                   name:NSWindowDidBecomeKeyNotification object:window];
++    [center addObserver:self selector:@selector(windowActivated:)
++                   name:NSApplicationDidBecomeActiveNotification object:NSApp];
++    // The local monitor catches only title drags on this window. Phone input
++    // and the three standard window buttons still take their native path.
++    __block HosMirrorWindowSnap *owner = self;
++    _monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown
++                      | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp
++                      handler:^NSEvent *(NSEvent *event) { return [owner handleEvent:event]; }];
++    _managesTransfers = [self sendEvent:@{ @"action": @"dropReady" }]; // 端口不可用时继续使用上游拖放。
++    if (_managesTransfers && NSApp.windowsMenu) {
++        _historyItem = [[NSMenuItem alloc] initWithTitle:@"传输记录…"
++                         action:@selector(showTransferHistory:) keyEquivalent:@""]; // 与窗口的其他原生操作同处一个菜单。
++        _historyItem.target = self;
++        [NSApp.windowsMenu addItem:_historyItem];
++    }
++    return self;
++}
++
++- (void)dealloc {
++    [_historyItem.menu removeItem:_historyItem]; // 移除指向本窗口控制器的菜单项。
++    [_historyItem release];
++    [_toast removeFromSuperview]; // SDL 销毁窗口前拆除原生提示。
++    [_toast release];
++    [_toastState release];
++    [_dropPaths release];
++    [NSNotificationCenter.defaultCenter removeObserver:self];
++    if (_monitor) [NSEvent removeMonitor:_monitor];
++    if (_source) { CFRunLoopSourceInvalidate(_source); CFRelease(_source); }
++    if (_commands) { CFMessagePortInvalidate(_commands); CFRelease(_commands); }
++    if (_events) CFRelease(_events);
++    [super dealloc];
++}
++
++- (BOOL)isLocked {
++    return _locked;
++}
++
++- (BOOL)sendEvent:(NSDictionary *)event {
++    NSData *data = [NSJSONSerialization dataWithJSONObject:event options:0 error:NULL];
++    return data && data.length <= 1048576 && // 和宿主使用同一消息大小上限。
++        CFMessagePortSendRequest(_events, 0, (__bridge CFDataRef)data, 0.02, 0, NULL, NULL) == kCFMessagePortSuccess; // 不等待宿主回包。
++}
++
++- (BOOL)handleDrop:(const SDL_Event *)event enabled:(BOOL)enabled {
++    if (!_managesTransfers) return NO; // 单独使用 scrcpy 时交给上游实现。
++    switch (event->type) {
++    case SDL_EVENT_DROP_FILE: {
++        if (!enabled || !event->drop.data) return YES; // 已断线等情形不能再提交任务。
++        NSString *path = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:event->drop.data
++                                                                                    length:strlen(event->drop.data)]; // 按文件系统编码读取 SDL 路径。
++        if (!path.isAbsolutePath) return YES; // 不把其他类型的拖放交给文件队列。
++        if (!_dropPaths) _dropPaths = [[NSMutableArray alloc] init]; // 第一项到达时开始收集。
++        [_dropPaths addObject:path]; // 保留原始多选顺序。
++        return YES; // 不再由 scrcpy 重复推送或安装。
++    }
++    case SDL_EVENT_DROP_COMPLETE:
++        if (enabled && _dropPaths.count && ![self sendEvent:@{ @"action": @"dropFiles", @"paths": _dropPaths }]) {
++            NSBeep(); // 宿主退出或消息超限时提示此次拖放未提交。
++        }
++        [_dropPaths removeAllObjects]; // 完成或取消后不把路径带到下一次拖放。
++        return YES;
++    default:
++        return NO; // 其他 SDL 事件保留原有路径。
++    }
++}
++
++- (void)showTransferHistory:(id)sender {
++    [self sendEvent:@{ @"action": @"dropHistory" }]; // 完整记录由拥有任务的宿主展示。
++}
++
++- (void)sendToastAction:(NSString *)action {
++    if (!_toastState[@"id"]) return; // 没有可见任务时忽略操作。
++    [self sendEvent:@{ @"action": action, @"task": _toastState[@"id"],
++                       @"finished": _toastState[@"finished"] }]; // 关联当前可见的任务和阶段。
++}
++
++- (void)dismissTransferToast:(id)sender {
++    [self sendToastAction:@"dropDismiss"]; // 收起后仍可在菜单中查看记录。
++}
++
++- (void)cancelTransfer:(id)sender {
++    [self sendToastAction:@"dropCancel"]; // 实际取消由队列执行。
++}
++
++- (void)updateTransferToast:(NSDictionary *)state {
++    [_toastState release];
++    _toastState = [state copy]; // 保存点击时对应的快照。
++    [_toast removeFromSuperview];
++    [_toast release];
++    _toast = nil; // 每次只展示当前任务。
++    NSView *content = _window.contentView;
++    if (!state || !content) return; // nil 表示点击收起或当前没有任务。
++
++    BOOL finished = [state[@"finished"] boolValue]; // 任务进行中可取消。
++    NSNumber *fraction = state[@"fraction"]; // 设备已写入字节换算的进度。
++    NSString *detail = state[@"detail"];
++    if (fraction) detail = [NSString stringWithFormat:@"%d%%", (int)(fraction.doubleValue * 100)]; // 与鸿蒙提示相同的整数百分比。
++    CGFloat height = detail.length ? 80 : 64; // 保持文件名和状态分行。
++    _toast = [[HosMirrorTransferToast alloc] initWithFrame:NSZeroRect];
++    _toast.identifier = @"hosmirror.transfer-toast"; // 标识该原生窗口中的任务提示。
++    _toast.actionTarget = self;
++    _toast.material = NSVisualEffectMaterialHUDWindow;
++    _toast.blendingMode = NSVisualEffectBlendingModeWithinWindow; // 只模糊当前投屏内容。
++    _toast.state = NSVisualEffectStateActive;
++    _toast.wantsLayer = YES;
++    _toast.layer.cornerRadius = 20; // 与鸿蒙悬浮提示使用同一圆角。
++    _toast.layer.masksToBounds = YES;
++    _toast.translatesAutoresizingMaskIntoConstraints = NO;
++    [content addSubview:_toast positioned:NSWindowAbove relativeTo:nil]; // 覆盖 SDL 视频但保持在同一窗口内。
++    NSLayoutConstraint *width = [_toast.widthAnchor constraintEqualToConstant:304];
++    width.priority = NSLayoutPriorityDefaultHigh; // 小窗口中可以收窄提示。
++    [NSLayoutConstraint activateConstraints:@[
++        [_toast.widthAnchor constraintLessThanOrEqualToAnchor:content.widthAnchor multiplier:0.92], width,
++        [_toast.heightAnchor constraintEqualToConstant:height],
++        [_toast.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
++        [_toast.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-18],
++    ]]; // 旋转、缩放和磁吸时仍位于视频底部。
++
++    NSStackView *lines = [NSStackView stackViewWithViews:@[]];
++    lines.orientation = NSUserInterfaceLayoutOrientationVertical;
++    lines.alignment = NSLayoutAttributeLeading;
++    lines.spacing = 3;
++    NSArray<NSString *> *values = detail.length ? @[state[@"title"], state[@"name"], detail]
++                                                : @[state[@"title"], state[@"name"]]; // 只展示必要状态和文件名。
++    for (NSUInteger index = 0; index < values.count; ++index) {
++        NSTextField *label = [NSTextField labelWithString:values[index]];
++        label.font = index == 0 ? [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold] : [NSFont systemFontOfSize:11];
++        label.textColor = index == 0 ? NSColor.labelColor : NSColor.secondaryLabelColor;
++        label.lineBreakMode = NSLineBreakByTruncatingMiddle; // 窄窗口仍可看见文件扩展名。
++        [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
++        [lines addArrangedSubview:label];
++    }
++
++    NSView *indicator;
++    if (finished) {
++        NSImage *image = [NSImage imageWithSystemSymbolName:state[@"symbol"] accessibilityDescription:nil];
++        NSImageView *icon = [NSImageView imageViewWithImage:image];
++        NSString *tone = state[@"tone"];
++        icon.contentTintColor = [tone isEqualToString:@"error"] ? NSColor.systemRedColor
++                              : [tone isEqualToString:@"warning"] ? NSColor.systemOrangeColor : NSColor.systemGreenColor;
++        indicator = icon; // 成功、打开失败与任务失败分别提示。
++    } else {
++        NSProgressIndicator *progress = [[[NSProgressIndicator alloc] initWithFrame:NSZeroRect] autorelease];
++        progress.controlSize = NSControlSizeSmall;
++        progress.style = NSProgressIndicatorStyleSpinning;
++        [progress startAnimation:nil]; // 发送或安装期间使用原生动态进度。
++        indicator = progress;
++    }
++    indicator.translatesAutoresizingMaskIntoConstraints = NO;
++    lines.translatesAutoresizingMaskIntoConstraints = NO;
++    [_toast addSubview:indicator];
++    [_toast addSubview:lines];
++    [NSLayoutConstraint activateConstraints:@[
++        [indicator.leadingAnchor constraintEqualToAnchor:_toast.leadingAnchor constant:12],
++        [indicator.centerYAnchor constraintEqualToAnchor:_toast.centerYAnchor],
++        [indicator.widthAnchor constraintEqualToConstant:22],
++        [indicator.heightAnchor constraintEqualToConstant:22],
++        [lines.leadingAnchor constraintEqualToAnchor:indicator.trailingAnchor constant:9],
++        [lines.trailingAnchor constraintEqualToAnchor:_toast.trailingAnchor constant:-12],
++        [lines.centerYAnchor constraintEqualToAnchor:_toast.centerYAnchor],
++    ]]; // 文本可缩窄，状态图标保留足够尺寸。
++
++    NSMenu *menu = [[[NSMenu alloc] init] autorelease];
++    [menu addItemWithTitle:@"查看传输记录" action:@selector(showTransferHistory:) keyEquivalent:@""].target = self;
++    if (!finished) [menu addItemWithTitle:@"取消任务" action:@selector(cancelTransfer:) keyEquivalent:@""].target = self;
++    _toast.menu = menu; // 仅提示区域内的右键打开任务操作。
++}
++
++- (void)reportGeometry {
++    if (_aspect <= 0) return;
++    NSRect frame = _window.frame;
++    CGFloat chrome = [NSWindow frameRectForContentRect:NSZeroRect
++                                             styleMask:NSWindowStyleMaskTitled].size.height;
++    [self sendEvent:@{ @"action": @"geometry", @"aspect": @(_aspect), @"titleHeight": @(chrome),
++                       @"x": @(NSMinX(frame)), @"y": @(NSMinY(frame)) }];
++}
++
++- (void)updateAspect:(double)aspect {
++    if (aspect == _aspect) return;
++    _aspect = aspect;
++    [self reportGeometry]; // Initial frame and device rotation use actual video geometry.
++}
++
++- (void)applyFrame {
++    if (_applying || !_locked || (_window.styleMask & NSWindowStyleMaskFullScreen)) return;
++    _applying = YES;
++    if (_window.miniaturized) [_window deminiaturize:nil];
++    if (!NSEqualRects(_window.frame, _target)) [_window setFrame:_target display:YES]; // SDL observes the normal Cocoa size event.
++    _applying = NO;
++}
++
++- (void)windowGeometryChanged:(NSNotification *)note {
++    if (_applying) return;
++    if (_locked) [self applyFrame];
++    else if ([note.name isEqualToString:NSWindowDidMoveNotification]) [self reportGeometry];
++}
++
++- (void)windowActivated:(NSNotification *)note {
++    if (_locked && !_revealing && (note.object == _window || _window.keyWindow)) {
++        [self sendEvent:@{ @"action": @"raise" }];
++    }
++}
++
++- (void)applyCommand:(NSData *)data {
++    id message = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
++    if (![message isKindOfClass:NSDictionary.class]) return;
++    if ([message[@"transfer"] isEqual:@YES]) {
++        NSDictionary *state = message[@"toast"]; // 无状态时清除提示。
++        if (!state || [state isKindOfClass:NSDictionary.class]) [self updateTransferToast:state];
++        return; // 传输反馈不改变窗口磁吸状态。
++    }
++    if ([message[@"reveal"] isEqual:@YES]) {
++        if (_locked && !_revealing) {
++            _revealing = YES;
++            if (NSApp.hidden) [NSApp unhideWithoutActivation];
++            if (_window.miniaturized) [_window deminiaturize:nil];
++            [_window orderFrontRegardless]; // Keep the user's selected window key.
++            _revealing = NO;
++        }
++        return;
++    }
++    NSArray *frame = message[@"frame"];
++    if (!frame) {
++        if (!_locked) return;
++        _locked = NO;
++        _dragging = NO;
++        _window.movable = _freeMovable;
++        [_window standardWindowButton:NSWindowMiniaturizeButton].enabled = _freeMinimize;
++        _window.collectionBehavior = _freeBehavior;
++        return;
++    }
++    if (![frame isKindOfClass:NSArray.class] || frame.count != 4) return;
++    for (id value in frame) {
++        if (![value isKindOfClass:NSNumber.class] || !isfinite([value doubleValue])) return;
++    }
++    NSRect target = NSMakeRect([frame[0] doubleValue], [frame[1] doubleValue],
++                         [frame[2] doubleValue], [frame[3] doubleValue]);
++    if (target.size.width <= 0 || target.size.height <= 0) return;
++    _target = target;
++    if (!_locked) {
++        _freeMovable = _window.movable;
++        NSButton *minimize = [_window standardWindowButton:NSWindowMiniaturizeButton];
++        _freeMinimize = minimize.enabled;
++        minimize.enabled = NO;
++        _freeBehavior = _window.collectionBehavior;
++        _locked = YES;
++        _window.movable = NO;
++        _window.collectionBehavior = (_freeBehavior & ~NSWindowCollectionBehaviorFullScreenPrimary)
++                                      | NSWindowCollectionBehaviorFullScreenNone;
++        if (_window.styleMask & NSWindowStyleMaskFullScreen) [_window toggleFullScreen:nil];
++    }
++    [self applyFrame];
++}
++
++- (NSEvent *)handleEvent:(NSEvent *)event {
++    if (!_locked || event.window != _window) return event;
++    NSPoint point = [_window convertPointToScreen:event.locationInWindow];
++    if (event.type == NSEventTypeLeftMouseDown) {
++        [self sendEvent:@{ @"action": @"raise" }]; // Content clicks still reach the phone.
++        CGFloat y = event.locationInWindow.y;
++        if (y < NSMaxY([_window contentRectForFrameRect:_window.frame]) - NSMinY(_window.frame)) return event;
++        for (NSWindowButton kind = NSWindowCloseButton; kind <= NSWindowZoomButton; ++kind) {
++            NSButton *button = [_window standardWindowButton:kind];
++            if (button && NSPointInRect(event.locationInWindow, [button convertRect:button.bounds toView:nil])) return event;
++        }
++        if (!_window.keyWindow) [_window makeKeyAndOrderFront:nil];
++        if (event.clickCount == 2) {
++            _dragging = NO;
++            [self sendEvent:@{ @"action": @"maximize" }]; // The host fits the whole row to the display.
++            return nil;
++        }
++        _dragging = YES;
++        _lastDrag = event.timestamp;
++        [self sendEvent:@{ @"action": @"dragBegin", @"x": @(point.x), @"y": @(point.y),
++                           @"reorder": (event.modifierFlags & NSEventModifierFlagOption) ? @YES : @NO }];
++        return nil;
++    }
++    if (!_dragging) return event;
++    if (event.type == NSEventTypeLeftMouseUp) {
++        _dragging = NO;
++        [self sendEvent:@{ @"action": @"dragEnd", @"x": @(point.x), @"y": @(point.y) }];
++    } else if (event.type == NSEventTypeLeftMouseDragged && event.timestamp - _lastDrag >= 1.0 / 60.0) {
++        _lastDrag = event.timestamp;
++        [self sendEvent:@{ @"action": @"drag", @"x": @(point.x), @"y": @(point.y) }];
++    }
++    return nil;
++}
++
++@end
++
++void
++sc_hosmirror_setup_window_snap(SDL_Window *window) {
++    NSString *channel = NSProcessInfo.processInfo.environment[@"HOSMIRROR_WINDOW_CHANNEL"];
++    if (!channel.length) return;
++    SDL_PropertiesID properties = SDL_GetWindowProperties(window);
++    NSWindow *native = (__bridge NSWindow *)SDL_GetPointerProperty(
++        properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
++    if (!native) return;
++    HosMirrorWindowSnap *snap = [[HosMirrorWindowSnap alloc] initWithWindow:native channel:channel];
++    if (snap && !SDL_SetPointerProperty(properties, snap_property, snap)) [snap release];
++}
++
++void
++sc_hosmirror_update_window_aspect(SDL_Window *window, double aspect) {
++    HosMirrorWindowSnap *snap = SDL_GetPointerProperty(SDL_GetWindowProperties(window), snap_property, NULL);
++    [snap updateAspect:aspect];
++}
++
++bool
++sc_hosmirror_window_is_snapped(SDL_Window *window) {
++    HosMirrorWindowSnap *snap = SDL_GetPointerProperty(SDL_GetWindowProperties(window), snap_property, NULL);
++    return [snap isLocked];
++}
++
++void
++sc_hosmirror_destroy_window_snap(SDL_Window *window) {
++    SDL_PropertiesID properties = SDL_GetWindowProperties(window);
++    HosMirrorWindowSnap *snap = SDL_GetPointerProperty(properties, snap_property, NULL);
++    SDL_ClearProperty(properties, snap_property);
++    [snap release];
++}
++
++bool
++sc_hosmirror_handle_file_drop(SDL_Window *window, const SDL_Event *event, bool enabled) {
++    if (event->type != SDL_EVENT_DROP_FILE && event->type != SDL_EVENT_DROP_COMPLETE) return false; // 普通输入事件不访问 Cocoa 传输对象。
++    if (event->drop.windowID && event->drop.windowID != SDL_GetWindowID(window)) return false; // 不接管其他 SDL 窗口的拖放。
++    HosMirrorWindowSnap *snap = SDL_GetPointerProperty(SDL_GetWindowProperties(window), snap_property, NULL);
++    return [snap handleDrop:event enabled:enabled]; // 未由 HosMirror 管理时返回 false，交给上游实现。
++}

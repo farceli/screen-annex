@@ -1,0 +1,22 @@
+[package]
+name = "hosmirror_core"
+version = "0.1.0"
+edition = "2021"
+description = "Portable HarmonyOS mirror/control protocol kernel (hdc + gRPC-over-h2c + uitest)"
+license = "MIT"
+
+[dependencies]
+serde_json = "1.0" # 安全读取设备回传的 JSON-RPC，不自行切割字符串。
+
+[lib]
+name = "hosmirror_core"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "hm-probe"
+path = "src/bin/probe.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="HosMirror.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Screen Annex">
+    <Grid Padding="20" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <CommandBar DefaultLabelPosition="Right" IsOpen="False">
+            <AppBarButton Label="连接全部" Click="OnConnectAll"><AppBarButton.Icon><SymbolIcon Symbol="Play"/></AppBarButton.Icon></AppBarButton>
+            <AppBarButton Label="刷新" Click="OnRefresh"><AppBarButton.Icon><SymbolIcon Symbol="Refresh"/></AppBarButton.Icon></AppBarButton>
+            <AppBarButton Label="手机操作">
+                <AppBarButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="锁定全部在线手机" Tag="Lock" Click="OnBatchPhoneAction"/>
+                        <MenuFlyoutItem Text="唤醒全部在线手机" Tag="Wake" Click="OnBatchPhoneAction"/>
+                        <MenuFlyoutItem Text="全部切换浅色模式" Tag="Light" Click="OnBatchPhoneAction"/>
+                        <MenuFlyoutItem Text="全部切换深色模式" Tag="Dark" Click="OnBatchPhoneAction"/>
+                    </MenuFlyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton Label="无线调试…" Click="OnWireless"/>
+                <AppBarButton Label="设置…" Click="OnSettings"/>
+                <AppBarButton Label="放大投屏整组" Click="OnFitGroup"/>
+                <AppBarButton Label="传输记录…" Click="OnTransferHistory"/>
+                <AppBarButton Label="开源许可…" Click="OnLicenses"/>
+                <AppBarButton Label="退出 Screen Annex" Click="OnExit"/>
+            </CommandBar.SecondaryCommands>
+        </CommandBar>
+        <ScrollViewer Grid.Row="1">
+            <StackPanel x:Name="DevicesPanel" Spacing="8"/>
+        </ScrollViewer>
+        <TextBlock x:Name="StatusText" Grid.Row="2" TextWrapping="Wrap"/>
+    </Grid>
+</Window>
