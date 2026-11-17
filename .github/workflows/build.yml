@@ -1,0 +1,70 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare locked Android runtime
+        run: python3 scripts/vendor_scrcpy.py install --download
+      - name: Swift regression tests
+        run: swift test --disable-sandbox
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Windows portable process fixtures
+        run: dotnet run --project Tests/AndroidBackendTests/AndroidBackendTests.csproj
+      - name: Packaging regression tests
+        run: python3 -m unittest discover -s Tests -p 'test_*.py' -v
+      - name: Build app
+        run: ./scripts/build-app.sh
+
+  rust-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Protocol regression tests
+        working-directory: core
+        run: cargo test --locked
+      - name: Formatting
+        working-directory: core
+        run: cargo fmt --check
+      - name: Clippy
+        working-directory: core
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build core
+        working-directory: core
+        run: cargo build --locked --release
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare locked Android runtime
+        run: python scripts/vendor_scrcpy.py install --download
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Build and verify WinUI app
+        run: ./windows/build.ps1
+      - name: Windows portable regression checks
+        run: dotnet run --project Tests/AndroidBackendTests/AndroidBackendTests.csproj
