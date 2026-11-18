@@ -53,15 +53,21 @@
     <Compile Remove="MirrorWindow.xaml.cs" />
   </ItemGroup>
 
+  <PropertyGroup Condition="'$(SeparateSources)' == 'true'">
+    <!-- 对应源码另附于同版 Release，运行包保留许可证和下载说明。 -->
+    <ComplianceSourcesToExclude>..\..\Resources\compliance\sources\**\*</ComplianceSourcesToExclude>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- 仅复制可发布的许可材料，用户本机的 HarmonyOS SDK 保持独立。 -->
     <Content Include="..\..\LICENSE"
              Link="LICENSE"
              CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\Resources\compliance\**\*"
+             Exclude="$(ComplianceSourcesToExclude)"
              Link="Resources\compliance\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
-    <!-- Android 仅带 Windows x64 运行包；compliance 中的完整许可证与源码由上面的通配规则保留。 -->
+    <!-- Android 仅带 Windows x64 运行包；许可证和对应源码按上面的发行方式交付。 -->
     <Content Include="..\..\Resources\scrcpy\windows-x86_64\**\*"
              Exclude="..\..\Resources\scrcpy\windows-x86_64\scrcpy.exe"
              Link="Resources\scrcpy\windows-x86_64\%(RecursiveDir)%(Filename)%(Extension)"

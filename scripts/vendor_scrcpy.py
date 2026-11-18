@@ -154,7 +154,7 @@ def install(cache, download):
         (staged / "compliance/scrcpy.lock.json").replace(resources / "compliance/scrcpy.lock.json")
 
 
-def verify(resources, platform, signed, *, staged=False):
+def verify(resources, platform, signed, *, staged=False, separate_sources=False):
     if staged or signed:  # 旧输出目录也不得混入本机的 HarmonyOS SDK。
         for name in ("tools", "devices", "agents"):
             if (resources / name).exists():
@@ -187,6 +187,9 @@ def verify(resources, platform, signed, *, staged=False):
     for filename, sha in windows_patch.get("materials", {}).items():
         if expected.get(f"compliance/{filename}") != sha:
             raise ValueError(f"Windows 窗口补丁材料与版本锁不一致：{filename}")
+    if separate_sources:
+        # 只允许同版 Release 另附的源码归档缺席，声明、补丁和运行文件仍逐项校验。
+        expected = {name: sha for name, sha in expected.items() if not name.startswith("compliance/sources/")}
     local_clients = lock["macos_window_patch"]["clients"]
     for name, sha in expected.items():
         path = resources / name  # 每个缺失文件都会使发布停止。
@@ -231,13 +234,46 @@ def stage_adb_source(cache, destination, download):
     shutil.copy2(ROOT / "Resources/compliance/ADB-SOURCES.md", destination / "README.md")
 
 
+def stage_release_sources(cache, destination, download):
+    compliance = ROOT / "Resources/compliance"
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    manifest = json.loads((compliance / "manifest.json").read_text(encoding="utf-8"))["files"]
+    for source in lock["sources"].values():
+        if manifest.get(f"compliance/sources/{source['file']}") != source["sha256"]:
+            raise ValueError(f"源码清单与版本锁不一致：{source['file']}")
+    if destination.exists():
+        raise ValueError(f"对应源码需要新的输出目录：{destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # 使用同级暂存目录，所有源码和构建材料验证成功后再交付完整目录。
+    with tempfile.TemporaryDirectory(prefix="release-sources-", dir=destination.parent) as temporary:
+        staged = Path(temporary) / "Source Code"
+        scrcpy = staged / "scrcpy"
+        for name, sha in manifest.items():
+            if name.startswith("compliance/"):
+                relative = Path(name).relative_to("compliance")
+                source = LOCK if relative == Path("scrcpy.lock.json") else compliance / relative
+                if digest(source) != sha:
+                    raise ValueError(f"对应源码材料校验失败：{name}")
+                target = scrcpy / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        stage_adb_source(cache, staged / "ADB", download)
+        (staged / "README.md").write_text(
+            "# Screen Annex 对应源码\n\n"
+            "- [ADB 构建与替换说明](ADB/README.md)\n"
+            "- [scrcpy 构建与重新链接说明](scrcpy/REBUILDING.md)\n",
+            encoding="utf-8",
+        )
+        staged.rename(destination)
+
+
 def main():
     if sys.platform == "win32":
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8")  # 默认 cp1252 的重定向日志也必须能输出中文诊断。
     parser = argparse.ArgumentParser(description=__doc__)  # 命令帮助说明用途与联网边界。
-    parser.add_argument("action", choices=["install", "verify", "stage", "adb-source"])  # 不提供自动升级行为。
+    parser.add_argument("action", choices=["install", "verify", "stage", "adb-source", "release-sources"])  # 不提供自动升级行为。
     parser.add_argument("--cache", type=Path, default=ROOT / ".build/android-downloads")  # 初次下载目录不进入发行包。
     parser.add_argument("--download", action="store_true")  # 联网必须显式指定。
     parser.add_argument("--platform", default="all")  # 源资源默认检查全部已支持架构。
@@ -245,15 +281,20 @@ def main():
     parser.add_argument("--signed", action="store_true")  # 仅用于已经重签名的 macOS 产物。
     parser.add_argument("--staged", action="store_true")  # 校验已组装、未重新签名的发行目录。
     parser.add_argument("--destination", type=Path)  # stage 目标必须由打包脚本明确传入。
+    parser.add_argument("--separate-sources", action="store_true", help="校验或组装由同版 Release 单独交付源码的应用资源")
     args = parser.parse_args()  # 解析后再进行任何文件操作。
     if args.action == "install":
         install(args.cache, args.download)  # 仅安装生成的第三方资源。
     elif args.action == "verify":
-        verify(args.resources, args.platform, args.signed, staged=args.staged)  # 默认全离线，失败立即退出。
+        verify(args.resources, args.platform, args.signed, staged=args.staged, separate_sources=args.separate_sources)  # 默认全离线，失败立即退出。
     elif args.action == "adb-source":
         if args.destination is None:
             parser.error("adb-source 必须指定 --destination")
         stage_adb_source(args.cache, args.destination, args.download)
+    elif args.action == "release-sources":
+        if args.destination is None:
+            parser.error("release-sources 必须指定 --destination")
+        stage_release_sources(args.cache, args.destination, args.download)
     else:
         if args.platform == "all" or args.destination is None:
             parser.error("stage 必须指定 --platform 和 --destination")  # 避免把所有平台运行文件都放入一个安装包。
@@ -262,14 +303,17 @@ def main():
         if target.exists():
             shutil.rmtree(target)  # 删除此阶段管理的旧平台资源，防止跨架构混用。
         shutil.copytree(ROOT / "Resources/scrcpy" / args.platform, target / args.platform)  # 仅复制目标运行平台。
-        shutil.copytree(ROOT / "Resources/compliance", args.destination / "compliance", dirs_exist_ok=True)  # 许可证与完整源码一起复制。
+        compliance = ROOT / "Resources/compliance"
+        # 只忽略合规目录顶层的源码归档，保留所有许可证及重新链接说明。
+        ignore = (lambda directory, _: ["sources"] if Path(directory) == compliance else []) if args.separate_sources else None
+        shutil.copytree(compliance, args.destination / "compliance", ignore=ignore, dirs_exist_ok=True)
         if args.platform.startswith("macos-"):
             client = ROOT / "third_party/scrcpy-macos" / args.platform / "scrcpy"
             shutil.copy2(client, target / args.platform / "scrcpy") # 替换桌面客户端，沿用原包的 server 与资源。
         if args.platform == "windows-x86_64":
             client = ROOT / "third_party/scrcpy-windows" / args.platform / "scrcpy.exe"
             shutil.copy2(client, target / args.platform / "scrcpy.exe")  # server 与运行库仍来自官方归档。
-        verify(args.destination, args.platform, False, staged=True)  # 在签名前对组装结果再次校验。
+        verify(args.destination, args.platform, False, staged=True, separate_sources=args.separate_sources)  # 在签名前对组装结果再次校验。
 
 
 if __name__ == "__main__":

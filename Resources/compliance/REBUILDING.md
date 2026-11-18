@@ -1,8 +1,8 @@
 # 对应源码、重新链接与本机替换
 
-本目录随 App 离线提供完整 scrcpy、FFmpeg、libusb、SDL 和 dav1d 源码归档。sources 中的版本与 scrcpy.lock.json 一致；上游 app/deps 下的依赖脚本保存相应源归档摘要和完整构建参数。源码归档未添加或删除原始代码、构建脚本、许可证或作者声明。
+在 [GitHub Releases](https://github.com/farceli/screen-annex/releases) 打开与 App 版本一致的页面，下载 `Screen-Annex-corresponding-source.zip`。解压后在 `Source Code/scrcpy/` 找到完整 scrcpy、FFmpeg、libusb、SDL 和 dav1d 源码、补丁及脚本。离线分发包可在本目录直接提供相同材料。`sources/` 中的版本与 `scrcpy.lock.json` 一致，上游 `app/deps` 下的脚本保存源归档摘要和构建参数。
 
-macOS 官方 scrcpy 静态链接 FFmpeg 和 libusb。因此我们选择 LGPL 2.1 第 6(a) 条的源码交付路径：同时提供库的完整对应源码、使用这些库的完整 scrcpy 源码和控制构建的脚本，使用户能够修改库、重新编译及重新链接独立 scrcpy 程序。本说明不是仅提供上游链接或承诺以后提供源码。
+macOS 版 scrcpy 静态链接 FFmpeg 和 libusb。GitHub 发布按 LGPL 2.1 第 6(d) 条，在同一 Release 提供第 6(a) 条所述材料，使用户能够修改库并重新链接独立 scrcpy 程序。
 
 ## 构建环境
 
@@ -26,6 +26,6 @@ macOS 本地副本因资源变化会失去原签名。用户可用系统 codesig
 
 ## 验证边界
 
-本次已经核对官方发布归档、依赖源码摘要、版本脚本及随包材料。rebuild_scrcpy.sh 保留离线源码并提供构建入口；它不代表已经在全部目标平台复现上游发布环境或得到逐字节相同的二进制。一般用途编译器、系统 SDK、汇编器和包管理器需要使用者准备。
+本次已经核对官方发布归档、依赖源码摘要、版本脚本及随包材料。`rebuild_scrcpy.sh` 使用配套归档构建。 逐字节复现上游二进制尚未在所有目标平台验证。一般用途编译器、系统 SDK、汇编器和包管理器由使用者准备。
 
 ADB 的独立构建与替换见 [ADB-SOURCES.md](ADB-SOURCES.md)。scrcpy 所用 zlib 由工具链提供，声明另附。

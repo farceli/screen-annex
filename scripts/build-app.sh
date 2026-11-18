@@ -46,8 +46,12 @@ mkdir -p "$SETTINGS_APP/Contents/MacOS"
 cp "$BIN" "$SETTINGS_APP/Contents/MacOS/HosMirrorSettings"
 cp Resources/SettingsPanel-Info.plist "$SETTINGS_APP/Contents/Info.plist"
 
+SOURCE_ARGS=()
+if [[ ${SCREEN_ANNEX_SEPARATE_SOURCES:-0} == 1 ]]; then
+  SOURCE_ARGS+=(--separate-sources) # 公开 Release 将完整源码和重新链接材料单独上传。
+fi
 cp LICENSE "$APP/Contents/Resources/LICENSE" # 在发行包中保留项目自身的许可文本。
-python3 scripts/vendor_scrcpy.py stage --platform "$ANDROID_PLATFORM" --destination "$APP/Contents/Resources" # Android 运行文件只复制当前架构，完整合规材料一同交付。
+python3 scripts/vendor_scrcpy.py stage --platform "$ANDROID_PLATFORM" --destination "$APP/Contents/Resources" "${SOURCE_ARGS[@]+${SOURCE_ARGS[@]}}" # Android 运行文件只复制当前平台。
 
 echo "==> ad-hoc sign"
 for tool in scrcpy adb; do
@@ -60,7 +64,7 @@ done
 codesign --force --sign - "$SETTINGS_APP" # 先签嵌套设置 App，再封签外层。
 codesign --force --sign - "$APP" # 内置工具和子 App 已逐一校验，再封签外层。
 codesign --verify --deep --strict "$APP" # 构建产物必须通过本地签名完整性检查。
-python3 scripts/vendor_scrcpy.py verify --resources "$APP/Contents/Resources" --platform "$ANDROID_PLATFORM" --signed # 核对最终签名后的 ADB 和 scrcpy 代码内容。
+python3 scripts/vendor_scrcpy.py verify --resources "$APP/Contents/Resources" --platform "$ANDROID_PLATFORM" --signed "${SOURCE_ARGS[@]+${SOURCE_ARGS[@]}}" # 核对最终签名后的 ADB 和 scrcpy 代码内容。
 
 echo "==> done: $APP"
 du -sh "$APP"

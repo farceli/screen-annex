@@ -49,6 +49,17 @@ class ScrcpyDistributionTests(unittest.TestCase):
                 VENDOR.verify(self.resources, self.platform, False)  # 遗漏必须阻止发行。
             path.write_bytes(original)  # 不让前一场景掩盖后一场景。
 
+    def test_separate_sources_keeps_the_license_and_source_instructions(self):
+        with self.assertRaisesRegex(ValueError, "compliance/sources/"):
+            VENDOR.verify(self.resources, self.platform, False, separate_sources=True)
+        shutil.rmtree(self.resources / "compliance/sources")  # 模拟 Release 单独上传归档。
+        VENDOR.verify(self.resources, self.platform, False, separate_sources=True)
+        with self.assertRaisesRegex(ValueError, "compliance/sources/"):
+            VENDOR.verify(self.resources, self.platform, False)  # 普通包仍需完整的随包源码。
+        (self.resources / "compliance/REBUILDING.md").unlink()
+        with self.assertRaisesRegex(ValueError, "REBUILDING.md"):
+            VENDOR.verify(self.resources, self.platform, False, separate_sources=True)
+
     def test_staged_distribution_rejects_locally_installed_sdk(self):
         client = self.resources / "scrcpy" / self.platform / "scrcpy.exe"
         shutil.copyfile(ROOT / "third_party/scrcpy-windows" / self.platform / client.name, client)
