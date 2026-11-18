@@ -133,9 +133,22 @@ public sealed partial class MirrorWindow : Window
         Core.Initialize();
 #endif
         var options = new List<string>(Video.SwapChainOptions) { "--no-audio", "--no-video-title-show" };
-        _vlc = new LibVLC(options.ToArray());
-        _player = new MediaPlayer(_vlc);
-        Video.MediaPlayer = _player;
+        var vlc = new LibVLC(options.ToArray());
+        MediaPlayer? player = null;
+        try
+        {
+            player = new MediaPlayer(vlc);
+            Video.MediaPlayer = player;
+            _vlc = vlc;
+            _player = player;
+        }
+        catch
+        {
+            // 初始化失败后释放这次创建的播放器，重试可以重新初始化。
+            player?.Dispose();
+            vlc.Dispose();
+            throw;
+        }
     }
 
     public void Show() { Activate(); WindowNative.Show(Handle); }
