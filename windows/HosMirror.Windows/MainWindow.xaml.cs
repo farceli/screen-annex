@@ -14,8 +14,9 @@ public sealed partial class MainWindow : Window
 #if ANDROID_RELEASE
     private const string _hdc = "";
 #else
-    private readonly string _harmonyResources;
-    private readonly string _hdc;
+    private string _harmonyResources;
+    private readonly bool _explicitHarmonyResources;
+    private string _hdc => Path.Combine(_harmonyResources, "tools", "hdc.exe");
     private readonly Dictionary<string, MirrorWindow> _mirrors = new();
 #endif
     private readonly AndroidBackend _android;
@@ -50,10 +51,10 @@ public sealed partial class MainWindow : Window
 #if !ANDROID_RELEASE
         string? configuredHarmony = Environment.GetEnvironmentVariable("HOSMIRROR_HARMONY_RESOURCES");
         // SDK 单独安装，旧版本地构建仍可使用原有的 Resources 布局。
-        _harmonyResources = !string.IsNullOrWhiteSpace(configuredHarmony) ? configuredHarmony :
+        _explicitHarmonyResources = !string.IsNullOrWhiteSpace(configuredHarmony);
+        _harmonyResources = _explicitHarmonyResources ? configuredHarmony! :
             File.Exists(Path.Combine(_resources, "tools", "hdc.exe")) ? _resources :
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Screen Annex", "HarmonyOS");
-        _hdc = Path.Combine(_harmonyResources, "tools", "hdc.exe");
 #endif
         _android = new AndroidBackend(_resources)
         {
@@ -200,10 +201,23 @@ public sealed partial class MainWindow : Window
     }
 
 #if !ANDROID_RELEASE
+    private async Task<bool> PrepareHarmonyAsync()
+    {
+        if (File.Exists(_hdc)) return true;
+        if (_explicitHarmonyResources) return false; // 环境变量指定的开发或测试路径仍优先。
+        string configuredRoot = _harmonyResources;
+        string? prepared = await Task.Run(() => HarmonySdk.Prepare(configuredRoot));
+        if (prepared is null) return false;
+        _harmonyResources = prepared;
+        return File.Exists(_hdc);
+    }
+
     private async Task<IReadOnlyList<DeviceChoice>> HarmonyDevicesAsync()
     {
-        if (!File.Exists(_hdc)) return []; // 可选 SDK 缺失时仍正常刷新 Android。
-        string output = await DeviceTools.RunAsync(_hdc, ["list", "targets"]);
+        // 正常刷新会在 DevEco Testing 安装完成后自动识别，不占用界面线程。
+        if (!await PrepareHarmonyAsync()) return [];
+        string hdc = _hdc;
+        string output = await DeviceTools.RunAsync(hdc, ["list", "targets"]);
         var serials = output.Split('\n').Select(line => line.Trim()).Where(line =>
             line.Length > 0 && !line.Equals("Empty", StringComparison.OrdinalIgnoreCase) &&
             !line.StartsWith('[') && !line.Any(char.IsWhiteSpace)).Distinct();
@@ -213,7 +227,7 @@ public sealed partial class MainWindow : Window
             const string probe = "echo __NAME__; param get const.product.marketname; echo __PRODUCT__; param get const.product.name; echo __MODEL__; param get const.product.model; echo __UDID__; bm get --udid";
             try
             {
-                string value = await DeviceTools.RunAsync(_hdc, ["-t", serial, "shell", probe], limit: TimeSpan.FromSeconds(4));
+                string value = await DeviceTools.RunAsync(hdc, ["-t", serial, "shell", probe], limit: TimeSpan.FromSeconds(4));
                 string? Field(string name)
                 {
                     string text = Regex.Match(value, $"(?m)^__{name}__\\r?\\n([^\\r\\n]+)").Groups[1].Value.Trim();
@@ -557,7 +571,7 @@ public sealed partial class MainWindow : Window
 #if !ANDROID_RELEASE
             else
             {
-                if (!File.Exists(_hdc)) throw new IOException("请先配置本机 HarmonyOS 调试组件。");
+                if (!await PrepareHarmonyAsync()) throw new IOException("请先安装华为 DevEco Testing，或检查指定的本机 SDK 目录。");
                 string result = await DeviceTools.RunAsync(_hdc, ["tconn", DeviceTools.Address(address.Text)]);
                 if (!result.Contains("connect OK", StringComparison.OrdinalIgnoreCase) &&
                     !result.Contains("already connected", StringComparison.OrdinalIgnoreCase))

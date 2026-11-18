@@ -15,7 +15,7 @@ public enum AppResources {
             .appendingPathComponent("Resources")
     }
 
-    public static var harmonyRoot: URL {
+    private static var explicitHarmonyRoot: URL? {
         if let path = ProcessInfo.processInfo.environment["HOSMIRROR_HARMONY_RESOURCES"], !path.isEmpty {
             return URL(fileURLWithPath: path, isDirectory: true) // 明确指定的本机 SDK 路径优先。
         }
@@ -24,12 +24,32 @@ public enum AppResources {
             || FileManager.default.isExecutableFile(atPath: bundled.appendingPathComponent("tools/hdc").path) {
             return bundled
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Screen Annex/HarmonyOS", isDirectory: true) // Finder 启动的 App 也能找到本机 SDK。
+        return nil
+    }
+
+    private static var localHarmonyRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Screen Annex/HarmonyOS", isDirectory: true)
+    }
+
+    private static var configuredLocalHarmonyRoot: URL? {
+        let root = localHarmonyRoot
+        return FileManager.default.isExecutableFile(atPath: root.appendingPathComponent("tools/hdc").path) ? root : nil
+    }
+
+    public static var harmonyRoot: URL {
+        explicitHarmonyRoot ?? configuredLocalHarmonyRoot ?? HarmonySDK.preparedRoot ?? localHarmonyRoot
+    }
+
+    public static func prepareHarmony() throws -> URL? {
+        if let explicitHarmonyRoot { return explicitHarmonyRoot }
+        // 已手工配置的旧版本和测试目录继续可用。
+        if let configuredLocalHarmonyRoot { return configuredLocalHarmonyRoot }
+        return try HarmonySDK.prepare()
     }
 
     public static var hdcBinary: URL {
-        harmonyRoot.appendingPathComponent("tools/hdc") // 第三方 SDK 由用户单独准备。
+        harmonyRoot.appendingPathComponent("tools/hdc")
     }
 }
 

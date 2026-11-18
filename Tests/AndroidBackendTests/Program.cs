@@ -1,4 +1,5 @@
 using HosMirror.Windows; // 直接访问同程序集中的真实生产后端。
+using System.IO.Compression;
 
 static void Require(bool condition, string message) // 任何失败都让验证进程非零退出。
 {
@@ -42,6 +43,36 @@ try
     Require(boxes.All(box => output.AsSpan().IndexOf(System.Text.Encoding.ASCII.GetBytes(box)) >= 0), "MP4 缺少必要容器字段");
 }
 finally { File.Delete(recordingPath); }
+
+// 使用合成的双层 JAR 验证本机自动配置及缓存，不执行任何 SDK 二进制。
+string sdkFixture = Path.Combine(Path.GetTempPath(), "screen-annex-sdk-" + Guid.NewGuid());
+try
+{
+    string sdkBin = Directory.CreateDirectory(Path.Combine(sdkFixture, "bin")).FullName;
+    string sdkTools = Directory.CreateDirectory(Path.Combine(sdkFixture, "tools")).FullName;
+    string sdkHdc = Path.Combine(sdkBin, "hdc.exe");
+    File.WriteAllText(sdkHdc, "hdc");
+    File.WriteAllText(Path.Combine(sdkBin, "libusb.dll"), "usb");
+    using (var outer = ZipFile.Open(Path.Combine(sdkTools, "demoWithoutRecord.jar"), ZipArchiveMode.Create))
+    using (var inner = new ZipArchive(outer.CreateEntry("lib/hosScrcpy-verified-shaded.jar").Open(), ZipArchiveMode.Create))
+    {
+        foreach (string name in new[] { "libscrcpy/libscrcpy_server3.z.so", "uitest_agent_1.1.10.so", "unrelated.so" })
+        {
+            using var entry = new StreamWriter(inner.CreateEntry(name).Open());
+            entry.Write(name);
+        }
+    }
+    string cache = Path.Combine(sdkFixture, "cache");
+    string imported = HarmonySdk.ImportResources(sdkFixture, cache);
+    Require(File.Exists(Path.Combine(imported, "tools", "libusb.dll")), "自动配置未包含 HDC 的 DLL");
+    Require(File.Exists(Path.Combine(imported, "devices", "libscrcpy_server3.z.so")), "自动配置未包含采集库");
+    Require(Directory.GetFiles(Path.Combine(imported, "agents")).Length == 1, "自动配置包含无关文件");
+    Require(HarmonySdk.ImportResources(sdkFixture, cache) == imported, "应复用相同安装版本的缓存");
+    File.WriteAllText(sdkHdc, "updated hdc");
+    Require(HarmonySdk.ImportResources(sdkFixture, cache) != imported, "HDC 更新后应准备新的缓存");
+}
+finally { if (Directory.Exists(sdkFixture)) Directory.Delete(sdkFixture, recursive: true); }
+
 if (OperatingSystem.IsWindows()) { Console.WriteLine("设备解析、重连、路径与录制检查通过。"); return; } // 不在 Windows 上误执行 POSIX 脚本。
 var root = Path.Combine(Path.GetTempPath(), "hosmirror-android-" + Guid.NewGuid()); // 不访问真实 ADB 或手机。
 var directory = Path.Combine(root, "scrcpy", "windows-x86_64"); // 与生产安装包路径完全一致。

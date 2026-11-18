@@ -57,7 +57,7 @@ final class SessionStore: ObservableObject {
     private var namesEditedWhileIdentifying = Set<String>() // 识别完成时保留刚提交的改名或清除。
     private var refreshID: UUID? // 防止重复轮询或较慢的旧结果覆盖新状态。
     private var wirelessID = UUID() // 同样隔离连续发起的无线连接结果。
-    private let hdc: Hdc
+    private var hdc: Hdc { Hdc(binary: AppResources.hdcBinary) }
     private var controllers: [String: DeviceController] = [:]
 
     var activeMirrorControllers: [DeviceController] {
@@ -69,7 +69,6 @@ final class SessionStore: ObservableObject {
         self.discoverDevices = discoverDevices
         let data = defaults.data(forKey: Self.knownDevicesKey) // 旧版用户首次运行时没有该字段。
         knownDevices = data.flatMap { try? JSONDecoder().decode([String: KnownDevice].self, from: $0) } ?? [:] // 首次运行从空历史开始。
-        hdc = Hdc(binary: AppResources.hdcBinary)
         var loaded = MirrorSettings.load(from: defaults)
         if ProcessInfo.processInfo.environment["HOSMIRROR_PIN"] == "1" {
             loaded.alwaysOnTop = true
@@ -85,15 +84,18 @@ final class SessionStore: ObservableObject {
         let request = UUID() // 每次刷新都生成新的结果版本。
         refreshID = request
         if !isDiscovering { isDiscovering = true }
-        let hdc = self.hdc
         Task { [weak self] in
             var issues: [String] = [] // 将两个独立后端的结果合并为非阻塞提示。
             await withTaskGroup(of: DiscoveryResult.self) { group in
                 if ReleaseFeatures.harmonyEnabled {
                     group.addTask {
-                        // 未安装可选的鸿蒙组件时，Android 设备列表仍可正常使用。
-                        guard FileManager.default.isExecutableFile(atPath: hdc.binary.path) else { return .harmony(.success([])) }
-                        return .harmony(Result { try hdc.targets() }) // 读取真实的 HDC 在线和授权状态。
+                        return .harmony(Result {
+                            // 轮询会在 DevEco Testing 安装完成后自动尝试准备本机组件。
+                            guard let resources = try AppResources.prepareHarmony() else { return [] }
+                            let binary = resources.appendingPathComponent("tools/hdc")
+                            guard FileManager.default.isExecutableFile(atPath: binary.path) else { return [] }
+                            return try Hdc(binary: binary).targets()
+                        })
                     }
                 }
                 group.addTask { .android(Result { try Adb(directory: AndroidRuntime.directory).devices() }) } // 无需等待鸿蒙工具返回。
@@ -322,12 +324,15 @@ final class SessionStore: ObservableObject {
         let request = UUID() // 后发请求的结果优先。
         wirelessID = request
         wirelessBusy = true // 等待期间保留界面响应但禁用重复提交。
-        let hdc = self.hdc
         Task { [weak self] in
             let result = await Task.detached { Result { // 后台使用所选平台对应的原生连接工具。
                 if platform == .harmony {
+                    guard let resources = try AppResources.prepareHarmony() else {
+                        throw HdcError("请先安装华为 DevEco Testing。")
+                    }
+                    let hdc = Hdc(binary: resources.appendingPathComponent("tools/hdc"))
                     guard FileManager.default.isExecutableFile(atPath: hdc.binary.path) else {
-                        throw HdcError("请先按 README 配置本机 HarmonyOS 组件。")
+                        throw HdcError("本机鸿蒙组件目录中没有可执行的 HDC。")
                     }
                     try hdc.connectWireless(address) // 使用本机 HDC 连接设备。
                 }

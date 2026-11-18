@@ -11,6 +11,6 @@
 | WinUI、Windows App SDK、SDK Build Tools | [Windows 项目依赖](windows/HosMirror.Windows/HosMirror.Windows.csproj) | NuGet 或 Microsoft 官方渠道获取。 |
 | LibVLCSharp / LibVLC | [LibVLCSharp.WinUI](https://www.nuget.org/packages/LibVLCSharp.WinUI/3.10.2) · [VideoLAN.LibVLC.Windows](https://www.nuget.org/packages/VideoLAN.LibVLC.Windows/3.0.21) | NuGet 包声明 LGPL-2.1-or-later。Windows 源码构建恢复这些包。发布含其 DLL 和插件的 Windows 安装包前，需复核实际分发文件的许可、声明和对应源码。 |
 
-HarmonyOS 的 HDC、采集与注入组件由用户分别准备。参见 [本机组件配置](docs/HARMONYOS.md)。
+HarmonyOS 的 HDC、采集与注入组件来自用户安装的 DevEco Testing，由 App 从本机自动准备。参见 [HarmonyOS 首次连接](docs/HARMONYOS.md)。
 
 鸿蒙协议参考包含 [hnscrcpy](https://github.com/taxiao213/hnscrcpy)（Apache-2.0）。项目保留协议参考的来源链接，未随仓库复制其应用代码或 SDK 文件。
