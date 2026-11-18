@@ -2,7 +2,7 @@
 
 Windows 客户端使用 WinUI 3。鸿蒙由 Rust 协议内核和 LibVLC 渲染，Android 由 scrcpy 在独立窗口显示。
 
-Windows x64 的 scrcpy 已交叉编译，可移植后端已运行回归测试。完整 WinUI 构建和真机功能仍待 Windows 环境验证。
+Windows x64 的 scrcpy 已交叉编译，完整 WinUI 构建和可移植后端回归测试已通过 GitHub Actions 验证。真机功能仍待 Windows 环境验证。
 
 ## 构建
 

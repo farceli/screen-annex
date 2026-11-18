@@ -7,7 +7,7 @@
 | 平台 | 当前状态 |
 | --- | --- |
 | macOS 14+ | SwiftUI / AppKit。已有 macOS 真机验证记录。 |
-| Windows x64 | WinUI 3。已通过可移植测试和 scrcpy 交叉编译，完整 WinUI 构建及真机验收待验证。 |
+| Windows x64 | WinUI 3。已通过 GitHub Actions 完整构建和可移植测试，真机验收待验证。 |
 
 ## 功能
 
