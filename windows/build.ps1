@@ -64,8 +64,8 @@ if ($publish) {
         if ($package -eq 'Microsoft.Windows.SDK.NET.Ref') {
             # 此包的 nuspec 指向官方 Windows SDK 条款，包内没有单独的许可或声明文件。
             $nuspec = Get-ChildItem $packagePath -Filter '*.nuspec' | Select-Object -First 1
-            [xml]$metadata = Get-Content $nuspec.FullName -Raw
-            $url = $metadata.package.metadata.licenseUrl
+            [xml]$sdkMetadata = Get-Content $nuspec.FullName -Raw
+            $url = $sdkMetadata.package.metadata.licenseUrl
             if ($url -ne 'https://aka.ms/WinSDKLicenseURL') { throw "Windows SDK 许可链接已变更。" }
             Copy-Item $nuspec.FullName -Destination $noticeDirectory
             @(
@@ -90,9 +90,10 @@ if ($HarmonyRelease) {
     # 随包保留托管播放器和 Rust 依赖使用的许可文件。
     $licenses = Join-Path $output "Licenses"
     Copy-Item (Join-Path $PSScriptRoot "compliance/*") $licenses
-    $metadata = cargo metadata --manifest-path (Join-Path $root 'core/Cargo.toml') --locked --format-version 1 | ConvertFrom-Json -AsHashtable
+    $cargoMetadataJson = cargo metadata --manifest-path (Join-Path $root 'core/Cargo.toml') --locked --format-version 1
     if ($LASTEXITCODE -ne 0) { throw "无法读取 Rust 依赖许可。" }
-    foreach ($crate in $metadata.packages | Where-Object { $_.source }) {
+    $cargoMetadata = $cargoMetadataJson | ConvertFrom-Json -AsHashtable
+    foreach ($crate in $cargoMetadata.packages | Where-Object { $_.source }) {
         $files = @(Get-ChildItem (Split-Path -Parent $crate.manifest_path) -File |
             Where-Object { $_.Name -match '^(LICENSE|COPYING|NOTICE|UNLICENSE)' })
         if ($files.Count -eq 0) { throw "$($crate.name) 缺少原始许可文件。" }
