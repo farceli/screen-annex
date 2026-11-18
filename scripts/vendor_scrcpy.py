@@ -6,6 +6,7 @@ import json  # 读取可审查的版本锁与逐文件清单。
 import shutil  # 仅复制经过校验的文件，不执行下载包中的脚本。
 import subprocess  # 下载使用系统 curl，签名校验使用系统 codesign。
 import struct  # 解析 Mach-O 头部，只忽略签名后留下的未使用头部填充。
+import sys  # Windows 控制台和重定向日志统一使用 UTF-8。
 import tarfile  # 手工提取普通文件，拒绝路径穿越和链接成员。
 import tempfile  # 签名归一化只修改独占临时副本。
 import zipfile  # Windows 发行包及 SDK 声明使用 ZIP。
@@ -100,7 +101,7 @@ def checked_file(cache, entry, download):
 
 
 def install(cache, download):
-    lock = json.loads(LOCK.read_text())  # 固定版本，下载内容必须匹配仓库锁定的哈希。
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))  # 固定版本，下载内容必须匹配仓库锁定的哈希。
     cache.mkdir(parents=True, exist_ok=True)
     resources = ROOT / "Resources"
     work = ROOT / ".build"  # 独占暂存目录与项目位于同一文件系统，便于原子替换。
@@ -142,10 +143,10 @@ def verify(resources, platform, signed, *, staged=False):
             if (resources / name).exists():
                 raise ValueError(f"构建输出包含本机 SDK 目录：{resources / name}。请使用干净的输出目录。")
     compliance = resources / "compliance"  # 支持源码目录与最终 App 资源目录。
-    lock = json.loads((compliance / "scrcpy.lock.json").read_text())  # 用户收到的版本锁必须完整。
-    if lock != json.loads(LOCK.read_text()):
+    lock = json.loads((compliance / "scrcpy.lock.json").read_text(encoding="utf-8"))  # 用户收到的版本锁必须完整。
+    if lock != json.loads(LOCK.read_text(encoding="utf-8")):
         raise ValueError("发行目录版本锁与项目不一致")  # 不允许旧运行文件配新声明。
-    manifest = json.loads((compliance / "manifest.json").read_text())  # 日常校验不重新生成清单。
+    manifest = json.loads((compliance / "manifest.json").read_text(encoding="utf-8"))  # 日常校验不重新生成清单。
     expected = {name: sha for name, sha in manifest["files"].items() if not name.startswith("scrcpy/") or platform == "all" or name.startswith(f"scrcpy/{platform}/")}  # 发行包只需包含目标平台。
     if platform != "all" and platform not in lock["binaries"]:
         raise ValueError(f"不支持的平台：{platform}")  # 不默默选择其他架构。
@@ -187,6 +188,10 @@ def verify(resources, platform, signed, *, staged=False):
 
 
 def main():
+    if sys.platform == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")  # 默认 cp1252 的重定向日志也必须能输出中文诊断。
     parser = argparse.ArgumentParser(description=__doc__)  # 命令帮助说明用途与联网边界。
     parser.add_argument("action", choices=["install", "verify", "stage"])  # 不提供自动升级行为。
     parser.add_argument("--cache", type=Path, default=ROOT / ".build/android-downloads")  # 初次下载目录不进入发行包。

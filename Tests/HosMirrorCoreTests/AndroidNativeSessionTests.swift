@@ -133,11 +133,12 @@ final class AndroidNativeSessionTests: XCTestCase {
             payload += Data([UInt8(word.utf16.count), UInt8(word.utf8.count)]) + Data(word.utf8) + Data([0]) // 两个长度、UTF-8 和零结尾。
         }
         while payload.count % 4 != 0 { payload.append(0) } // 对齐到 AXML chunk 边界。
-        let stringPool = u16(1) + u16(28) + u32(UInt32(40 + payload.count)) + u32(3) + u32(0) + u32(0x100) + u32(40) + u32(0) + offsets + payload // 标准 RES_STRING_POOL。
-        let node = u16(0x102) + u16(16) + u32(56) + u32(1) + u32(.max) // 标准起始元素 chunk。
-        let fields = u32(.max) + u32(0) + u16(20) + u16(20) + u16(1) + u16(0) + u16(0) + u16(0) // manifest 元素与一条属性。
-        let attribute = u32(.max) + u32(1) + u32(2) + u16(8) + Data([0, 3]) + u32(2) // package 的原始及 typed string 均指向索引 2。
-        let manifest = u16(3) + u16(8) + u32(UInt32(8 + stringPool.count + node.count + fields.count + attribute.count)) + stringPool + node + fields + attribute // 完整文档长度。
+        func joined(_ parts: [Data]) -> Data { parts.reduce(into: Data()) { $0.append($1) } } // 显式限定字段类型，避免较旧 Swift 编译器对长串加法的重载推断超时。
+        let stringPool = joined([u16(1), u16(28), u32(UInt32(40 + payload.count)), u32(3), u32(0), u32(0x100), u32(40), u32(0), offsets, payload]) // 标准 RES_STRING_POOL。
+        let node = joined([u16(0x102), u16(16), u32(56), u32(1), u32(.max)]) // 标准起始元素 chunk。
+        let fields = joined([u32(.max), u32(0), u16(20), u16(20), u16(1), u16(0), u16(0), u16(0)]) // manifest 元素与一条属性。
+        let attribute = joined([u32(.max), u32(1), u32(2), u16(8), Data([0, 3]), u32(2)]) // package 的原始及 typed string 均指向索引 2。
+        let manifest = joined([u16(3), u16(8), u32(UInt32(8 + stringPool.count + node.count + fields.count + attribute.count)), stringPool, node, fields, attribute]) // 完整文档长度。
         XCTAssertEqual(try APKManifest.packageName(data: manifest), "com.example.fixture") // 必须使用包自身声明。
         XCTAssertThrowsError(try APKManifest.packageName(data: manifest + manifest)) // 不接受拼接或重复的 manifest。
         XCTAssertThrowsError(try APKManifest.packageName(data: Data(manifest.dropLast()))) // 不接受截断属性。
