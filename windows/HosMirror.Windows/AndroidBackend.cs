@@ -24,7 +24,7 @@ internal sealed class AndroidBackend : IDisposable // 主窗口关闭时回收�
         string? configured = Environment.GetEnvironmentVariable("HOSMIRROR_ADB");
         if (!string.IsNullOrWhiteSpace(configured)) return configured; // 尊重用户明确指定的官方工具路径。
         string bundled = Path.Combine(_directory, "adb.exe");
-        if (File.Exists(bundled)) return bundled; // 兼容旧版本和隔离测试。
+        if (File.Exists(bundled)) return bundled; // 图形界面启动不依赖用户 PATH 或外部 SDK。
         string sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Android", "Sdk", "platform-tools", "adb.exe");
         if (File.Exists(sdk)) return sdk; // 支持 Android Studio 的默认安装位置。
         foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -38,7 +38,7 @@ internal sealed class AndroidBackend : IDisposable // 主窗口关闭时回收�
     private string RequireAdb()
     {
         string path = AdbPath();
-        if (!File.Exists(path)) throw new IOException("请安装 Android SDK Platform Tools，或设置 HOSMIRROR_ADB。");
+        if (!File.Exists(path)) throw new IOException("找不到 ADB。请重新安装完整版本，或检查 HOSMIRROR_ADB 指定的路径。");
         return Path.GetFullPath(path); // 子进程工作目录与宿主不同，必须传递绝对路径。
     }
 

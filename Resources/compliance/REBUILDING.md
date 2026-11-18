@@ -12,7 +12,7 @@ Windows x64：使用 Linux 上的 MinGW-w64 交叉编译环境，另备上述构
 
 ## 构建与重新链接
 
-运行同目录 rebuild_scrcpy.sh，参数为 macos 或 windows-x86_64，第二个参数为新建的工作目录。Windows 构建应用 `scrcpy-windows-events.patch`；macOS 构建应用 `scrcpy-macos-titlebar.patch`，并使用 `build_libusb_macos.sh` 按上游 Xcode 配置构建 libusb 静态库。依赖脚本使用本目录预置归档，保持上游 FFmpeg 构建选项。保留随包的同版本 scrcpy-server，并继续使用本机安装的 ADB。
+运行同目录 rebuild_scrcpy.sh，参数为 macos 或 windows-x86_64，第二个参数为新建的工作目录。Windows 构建应用 `scrcpy-windows-events.patch`；macOS 构建应用 `scrcpy-macos-titlebar.patch`，并使用 `build_libusb_macos.sh` 按上游 Xcode 配置构建 libusb 静态库。依赖脚本使用本目录预置归档，保持上游 FFmpeg 构建选项。保留随包的同版本 scrcpy-server 和 ADB。
 
 如果需要修改 LGPL 库，先让脚本完成解包，修改工作目录 scrcpy-5.0.1/app/deps/work/sources 下相应源码，再在相同工作目录重新运行脚本。脚本保留已展开源码和构建目录。修改构建配置时，可检查完整上游 release/build_macos.sh、release/build_windows.sh、app/deps/ffmpeg.sh 和 app/deps/libusb.sh。不能为了重新构建而删去依赖的原始声明。
 
@@ -28,4 +28,4 @@ macOS 本地副本因资源变化会失去原签名。用户可用系统 codesig
 
 本次已经核对官方发布归档、依赖源码摘要、版本脚本及随包材料。rebuild_scrcpy.sh 保留离线源码并提供构建入口；它不代表已经在全部目标平台复现上游发布环境或得到逐字节相同的二进制。一般用途编译器、系统 SDK、汇编器和包管理器需要使用者准备。
 
-ADB 由用户单独安装。zlib 为工具链提供的宽松许可依赖，声明另附。
+ADB 的独立构建与替换见 [ADB-SOURCES.md](ADB-SOURCES.md)。scrcpy 所用 zlib 由工具链提供，声明另附。

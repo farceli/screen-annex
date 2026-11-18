@@ -25,6 +25,7 @@ DMG="$DIST/Screen Annex-${VERSION}.dmg"
 echo "==> codesign (hardened runtime)"
 case "$(uname -m)" in arm64) ANDROID_PLATFORM=macos-aarch64 ;; x86_64) ANDROID_PLATFORM=macos-x86_64 ;; *) exit 1 ;; esac # 选择本次构建交付的平台。
 codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP/Contents/Resources/scrcpy/$ANDROID_PLATFORM/scrcpy" # 先用显式指定的正式身份封签客户端。
+codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP/Contents/Resources/scrcpy/$ANDROID_PLATFORM/adb" # 公证前以同一身份封签内置 ADB。
 codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP/Contents/Helpers/Screen Annex Settings.app"
 codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"

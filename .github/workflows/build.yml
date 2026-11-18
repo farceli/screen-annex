@@ -66,5 +66,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - name: Build and verify WinUI app
         run: ./windows/build.ps1
+      - name: Run the bundled Windows ADB
+        run: ./dist/windows-x64/Resources/scrcpy/windows-x86_64/adb.exe version
       - name: Windows portable regression checks
         run: dotnet run --project Tests/AndroidBackendTests/AndroidBackendTests.csproj

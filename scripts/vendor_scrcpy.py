@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""安装和校验固定版本的官方 scrcpy、许可证与对应源码；默认不联网。"""
+"""安装和校验固定版本的 scrcpy、ADB 和对应发行材料；默认不联网。"""
 import argparse  # 明确区分首次准备资源、日常离线校验和发行目录组装。
 import hashlib  # 所有归档和运行文件使用 SHA-256 校验。
 import json  # 读取可审查的版本锁与逐文件清单。
@@ -67,37 +67,53 @@ def code_digest(path):
     return result.hexdigest()  # 除签名和未使用头部填充外必须完全一致。
 
 
-def archive_files(path):
+def archive_files(path, selected=None):
     if path.suffix == ".zip":  # ZIP 中只允许普通文件和目录。
         with zipfile.ZipFile(path) as archive:  # 关闭时释放归档句柄。
             for member in archive.infolist():  # 保留归档中的原始名字以便检查。
-                if member.is_dir():
+                if member.is_dir() or (selected is not None and member.filename not in selected):
                     continue  # 目录会在写入普通文件时按需创建。
                 if (member.external_attr >> 16) & 0o170000 == 0o120000:
                     raise ValueError(f"拒绝归档链接：{member.filename}")  # 不允许链接逃逸安装目录。
                 yield member.filename, archive.read(member), (member.external_attr >> 16) & 0o777  # 只保留普通权限位。
     else:  # scrcpy 和依赖源码采用 tar.gz 或 tar.xz。
         with tarfile.open(path) as archive:  # tarfile 根据扩展名识别压缩格式。
-            for member in archive.getmembers():  # 不调用不受约束的 extractall。
-                if member.isdir():
+            for member in archive:  # 只读取计划交付的文件，不解包其他工具。
+                if member.isdir() or (selected is not None and member.name not in selected):
                     continue  # 目录本身没有需要交付的内容。
                 if not member.isfile():
                     raise ValueError(f"拒绝非普通文件：{member.name}")  # 拒绝符号链接、硬链接和设备文件。
                 yield member.name, archive.extractfile(member).read(), member.mode & 0o777  # 内容仅用于写入或许可证提取。
 
 
-def checked_file(cache, entry, download):
+def checked_file(cache, entry, download, *, command="install", timeout=240):
     path = cache / entry["file"]  # 归档名由项目维护的锁文件提供。
     if not path.exists() or digest(path) != entry["sha256"]:  # 已有错误缓存不能被继续使用。
         if not download:
-            raise ValueError(f"缺少或校验失败：{path}；先执行 install --download")  # 日常构建不偷偷联网。
+            raise ValueError(f"缺少或校验失败：{path}；先执行 {command} --download")  # 日常构建不偷偷联网。
         temporary = path.with_name(path.name + ".partial")  # 下载中断时不留下看似完整的文件。
-        subprocess.run(["curl", "-fL", "--retry", "3", "--retry-all-errors", "--connect-timeout", "15", "--max-time", "240", entry["url"], "-o", str(temporary)], check=True)  # 只从锁定的官方 HTTPS 地址下载。
+        subprocess.run(["curl", "-fL", "--retry", "3", "--retry-all-errors", "--connect-timeout", "15", "--max-time", str(timeout), entry["url"], "-o", str(temporary)], check=True)  # 下载仅使用锁定的 HTTPS 地址。
         if digest(temporary) != entry["sha256"]:
             temporary.unlink(missing_ok=True)  # 不缓存校验失败的下载。
             raise ValueError(f"官方归档校验失败：{entry['file']}")  # 不降低校验要求。
         temporary.replace(path)  # 仅完整且正确的归档进入缓存。
     return path  # 后续提取只使用已验证文件。
+
+
+def adb_os(platform):
+    return platform.split("-", 1)[0]  # macOS 两种架构共用上游 universal2 归档。
+
+
+def install_adb(cache, entry, download, destination):
+    archive = checked_file(cache, entry, download)
+    selected = {f"{entry['root']}/{name}": name for name in entry["files"]}
+    for member, content, _ in archive_files(archive, selected):
+        name = selected.pop(member)  # 固定路径及文件名，不从归档派生目标路径。
+        file = destination / name
+        file.write_bytes(content)
+        file.chmod(0o755 if name in {"adb", "adb.exe"} else 0o644)  # macOS 从 App 资源目录直接执行 ADB。
+    if selected:
+        raise ValueError(f"ADB 归档缺少：{sorted(selected)}")
 
 
 def install(cache, download):
@@ -118,11 +134,12 @@ def install(cache, download):
                 if not relative.parts or relative.is_absolute() or ".." in relative.parts:
                     raise ValueError(f"拒绝归档路径：{name}")
                 if relative.name in {"adb", "adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll"}:
-                    continue  # Android Platform Tools 由用户从官方渠道单独安装。
+                    continue  # 跳过 scrcpy 归档中来自 Google SDK 的 ADB，下面安装有对应源码的构建。
                 destination = target / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(content)
                 destination.chmod(mode or 0o644)
+            install_adb(cache, lock["adb"]["binaries"][adb_os(platform)], download, target)
         verify(staged, "all", False)  # 使用仓库中的独立清单，不信任下载内容自报的哈希。
         current = resources / "scrcpy"
         previous = staged / "previous"
@@ -157,6 +174,12 @@ def verify(resources, platform, signed, *, staged=False):
         name = "compliance/sources/" + entry["file"]  # 源码归档还要与固定锁中的摘要交叉验证。
         if expected.get(name) != entry["sha256"]:
             raise ValueError(f"源码清单与版本锁不一致：{name}")  # 防止源码和二进制版本漂移。
+    for name, sha in lock["adb"]["notices"].items():
+        if expected.get(f"compliance/{name}") != sha:
+            raise ValueError(f"清单缺少锁定的 ADB 声明：{name}")
+    for target in lock["binaries"] if platform == "all" else (platform,):
+        for filename, sha in lock["adb"]["binaries"][adb_os(target)]["files"].items():
+            expected[f"scrcpy/{target}/{filename}"] = sha  # 直接从 ADB 版本锁要求全部运行文件，包括 Windows USB DLL。
     for filename, sha in lock["macos_window_patch"]["materials"].items():
         if expected.get(f"compliance/{filename}") != sha:
             raise ValueError(f"macOS 窗口补丁材料与版本锁不一致：{filename}")
@@ -174,9 +197,9 @@ def verify(resources, platform, signed, *, staged=False):
             sha = client["sha256"] # macOS 组装后须使用经过锁定的窗口补丁版本。
         if staged and name == "scrcpy/windows-x86_64/scrcpy.exe":
             sha = windows_patch["client_sha256"]  # Windows 发行包使用有拖放事件桥接的客户端。
-        if signed and name.startswith("scrcpy/macos-") and path.name == "scrcpy":
+        if signed and name.startswith("scrcpy/macos-") and path.name in {"scrcpy", "adb"}:
             subprocess.run(["codesign", "--verify", "--strict", str(path)], check=True, capture_output=True)  # 签名必须有效，并且只允许签名字节发生变化。
-            expected_code = client["code_sha256"]
+            expected_code = client["code_sha256"] if client else lock["adb"]["binaries"]["macos"]["code_sha256"]
             if code_digest(path) != expected_code:
                 raise ValueError(f"重签名后代码内容发生改变：{name}")  # 不能用任意有效签名掩盖真正的代码修改。
         elif digest(path) != sha:
@@ -184,7 +207,27 @@ def verify(resources, platform, signed, *, staged=False):
     actual = {path.relative_to(resources).as_posix() for base in [resources / "scrcpy", compliance] for path in base.rglob("*") if path.is_file() and path.name != "manifest.json"}  # 检查偷偷混入的额外依赖。
     if actual != set(expected):
         raise ValueError(f"运行目录文件集合不匹配：{sorted(actual ^ set(expected))}")  # 同时发现缺失与未声明文件。
-    print(f"scrcpy {lock['scrcpy_version']} / {platform}：运行文件、许可和对应源码校验通过")  # 不把此检查宣称为所有组件的法律审计。
+    print(f"scrcpy {lock['scrcpy_version']} + ADB {lock['adb']['version']} / {platform}：运行文件和随 App 材料校验通过")
+
+
+def stage_adb_source(cache, destination, download):
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    adb = lock["adb"]
+    source = checked_file(cache, adb["source"], download, command="adb-source", timeout=1800)
+    dependencies = [checked_file(cache, entry, download, command="adb-source") for entry in adb["source_dependencies"]]
+    destination.mkdir(parents=True, exist_ok=True)
+    package_cache = destination / "packagecache"
+    package_cache.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="adb-source-", dir=destination) as directory:
+        entries = [(source, destination), *((path, package_cache) for path in dependencies)]
+        for path, parent in entries:
+            target = parent / path.name
+            if path.resolve() == target.resolve():
+                continue  # 允许复用已就位且经过校验的文件。
+            staged = Path(directory) / path.name
+            shutil.copyfile(path, staged)
+            staged.replace(target)  # 提交完整文件，发布目录不会留下只复制一部分的归档。
+    shutil.copy2(ROOT / "Resources/compliance/ADB-SOURCES.md", destination / "README.md")
 
 
 def main():
@@ -193,7 +236,7 @@ def main():
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8")  # 默认 cp1252 的重定向日志也必须能输出中文诊断。
     parser = argparse.ArgumentParser(description=__doc__)  # 命令帮助说明用途与联网边界。
-    parser.add_argument("action", choices=["install", "verify", "stage"])  # 不提供自动升级行为。
+    parser.add_argument("action", choices=["install", "verify", "stage", "adb-source"])  # 不提供自动升级行为。
     parser.add_argument("--cache", type=Path, default=ROOT / ".build/android-downloads")  # 初次下载目录不进入发行包。
     parser.add_argument("--download", action="store_true")  # 联网必须显式指定。
     parser.add_argument("--platform", default="all")  # 源资源默认检查全部已支持架构。
@@ -206,6 +249,10 @@ def main():
         install(args.cache, args.download)  # 仅安装生成的第三方资源。
     elif args.action == "verify":
         verify(args.resources, args.platform, args.signed, staged=args.staged)  # 默认全离线，失败立即退出。
+    elif args.action == "adb-source":
+        if args.destination is None:
+            parser.error("adb-source 必须指定 --destination")
+        stage_adb_source(args.cache, args.destination, args.download)
     else:
         if args.platform == "all" or args.destination is None:
             parser.error("stage 必须指定 --platform 和 --destination")  # 避免把所有平台运行文件都放入一个安装包。

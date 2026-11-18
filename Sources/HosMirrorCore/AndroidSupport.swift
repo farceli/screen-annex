@@ -46,7 +46,7 @@ public struct AndroidDevice: Identifiable, Equatable, Sendable {
     }
 }
 
-/// 通过官方 Platform Tools 连接 Android，测试可在运行目录提供隔离替身。
+/// 优先使用随应用分发的 ADB，也允许用户显式切换到其他版本。
 public struct Adb: Sendable {
     public let directory: URL // 指向当前平台的完整 scrcpy 运行目录。
     public var binary: URL { binary(in: ProcessInfo.processInfo.environment) }
@@ -55,7 +55,7 @@ public struct Adb: Sendable {
         if let path = environment["HOSMIRROR_ADB"], !path.isEmpty { return URL(fileURLWithPath: path) } // 允许自定义 SDK 安装位置。
         let files = FileManager.default
         let bundled = directory.appendingPathComponent("adb")
-        if files.isExecutableFile(atPath: bundled.path) { return bundled } // 兼容旧版本和隔离测试。
+        if files.isExecutableFile(atPath: bundled.path) { return bundled } // 图形界面启动不依赖用户 PATH 或外部 SDK。
         let sdk = files.homeDirectoryForCurrentUser.appendingPathComponent("Library/Android/sdk/platform-tools/adb")
         if files.isExecutableFile(atPath: sdk.path) { return sdk } // Finder 启动时仍能使用默认 Android Studio SDK。
         for path in (environment["PATH"] ?? "").split(separator: ":") {
@@ -69,7 +69,7 @@ public struct Adb: Sendable {
     public func run(_ arguments: [String], timeout: TimeInterval = 15, attempt: ConnectionAttempt? = nil, poll: (() -> Void)? = nil) throws -> String { // 共用超时、取消与真实字节轮询。
         let executable = binary // 此次调用使用同一个已解析的路径。
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw HdcError("请安装 Android SDK Platform Tools，或设置 HOSMIRROR_ADB。")
+            throw HdcError("ADB 不可执行。请重新安装完整版本，或检查 HOSMIRROR_ADB 指定的路径。")
         }
         return try Hdc(binary: executable, displayName: "ADB").run(arguments, timeout: timeout, attempt: attempt, poll: poll)
     }

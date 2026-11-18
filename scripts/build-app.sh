@@ -48,10 +48,11 @@ python3 scripts/vendor_scrcpy.py stage --platform "$ANDROID_PLATFORM" --destinat
 
 echo "==> ad-hoc sign"
 codesign --force --sign - "$APP/Contents/Resources/scrcpy/$ANDROID_PLATFORM/scrcpy" # 先封签内置客户端，只使用本地 ad-hoc 身份。
+codesign --force --sign - "$APP/Contents/Resources/scrcpy/$ANDROID_PLATFORM/adb" # ADB 同样随 App 执行并参与签名校验。
 codesign --force --sign - "$SETTINGS_APP" # 先签嵌套设置 App，再封签外层。
-python3 scripts/vendor_scrcpy.py verify --resources "$APP/Contents/Resources" --platform "$ANDROID_PLATFORM" --signed # 除签名字节外代码必须与锁定的运行文件一致。
 codesign --force --deep --sign - "$APP" # 签名失败时立即终止，不能输出伪成功。
 codesign --verify --deep --strict "$APP" # 构建产物必须通过本地签名完整性检查。
+python3 scripts/vendor_scrcpy.py verify --resources "$APP/Contents/Resources" --platform "$ANDROID_PLATFORM" --signed # 核对最终签名后的 ADB 和 scrcpy 代码内容。
 
 echo "==> done: $APP"
 du -sh "$APP"

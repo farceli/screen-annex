@@ -1,4 +1,6 @@
 # 构建用于本机测试的 Windows x64 程序，并验证必需运行时资源。
+param([switch]$IncludeAdbSource) # 公开分发时把 ADB 对应源码放进可整体压缩的输出目录。
+
 $ErrorActionPreference = "Stop" # PowerShell 自身操作失败时立即停止。
 $root = Split-Path -Parent $PSScriptRoot # 项目根目录。
 $app = Join-Path $PSScriptRoot "HosMirror.Windows" # WinUI 工程目录。
@@ -24,4 +26,8 @@ foreach ($relative in @("ScreenAnnex.exe", "hosmirror_core.dll", "LICENSE")) {
 }
 python $vendor verify --resources (Join-Path $output "Resources") --platform windows-x86_64 --staged # 核对实际输出，发现旧 SDK 残留时返回错误。
 if ($LASTEXITCODE -ne 0) { throw "Windows 发行包的 Android 合规材料校验失败。" } # 缺少任意 DLL 或许可即停止。
+if ($IncludeAdbSource) {
+    python $vendor adb-source --destination (Join-Path $output "Source Code")
+    if ($LASTEXITCODE -ne 0) { throw "Windows 发行包缺少 ADB 对应源码。" }
+}
 Write-Host "==> done: $output" # 所有检查通过后才报告成功。

@@ -78,5 +78,144 @@
       "scrcpy-windows-events.patch": "b8d7771c3767c25da8ee1b94c71644b9d0013d591d763c3a4f309c6bf9dd2d4a"
     },
     "client_sha256": "67484176480c34000310ac4666f1bf5457df00be9b30ddba995c185fbe26a554"
+  },
+  "adb": {
+    "version": "36.0.1",
+    "release_url": "https://github.com/meator/android-tools-static/releases/tag/36.0.1",
+    "build_commit": "cdadf2ecf68bd3b8c8971b9214cd2bc4e2d77127",
+    "binaries": {
+      "macos": {
+        "file": "android-tools-static-macos-standardlayout-universal2.tar.gz",
+        "url": "https://github.com/meator/android-tools-static/releases/download/36.0.1/android-tools-static-macos-standardlayout-universal2.tar.gz",
+        "sha256": "e09c1a653d894b736a16a6ce19667a5c51b2f4c5ed184b518101f981afa1d56f",
+        "root": "android-tools-static",
+        "files": {
+          "adb": "05da6c795abd59f5a544e6a4233daa0eb2d28b71322b1d6ab57e16178d340c95"
+        },
+        "code_sha256": "4b55b99ad3d8056498a1ee9b20a1b846225a4f55dcc86d61b3085c5c37fc2a13"
+      },
+      "windows": {
+        "file": "android-tools-static-36.0.1-windows-nativelayout-x86_64.zip",
+        "url": "https://github.com/meator/android-tools-static/releases/download/36.0.1/android-tools-static-36.0.1-windows-nativelayout-x86_64.zip",
+        "sha256": "f73b3f45832bbfd6f231567ec63a96c50694343df06323676726ac0c1c05332f",
+        "root": "android-tools-static-36.0.1-windows-nativelayout-x86_64",
+        "files": {
+          "adb.exe": "e4f94201ee68abe9ef6cba50643595e14908fcf2e7c1a58090f4d7966e282b8b",
+          "AdbWinApi.dll": "fd16a11a27ffc2961337b5730e5b45c0fdb9e31b62f937e4a6290d4ef2bdb99d",
+          "AdbWinUsbApi.dll": "df555c8bf6208029d61de89623220d924e70e777ddd392dc5e5c97f6df10e9a3"
+        }
+      }
+    },
+    "source": {
+      "file": "android-tools-static-36.0.1-src-windows.zip",
+      "url": "https://github.com/meator/android-tools-static/releases/download/36.0.1/android-tools-static-36.0.1-src-windows.zip",
+      "sha256": "391e4325ffd3f4c494a506f918f78b18cca8a91b34b2d3ada69d3c5200248aca"
+    },
+    "source_dependencies": [
+      {
+        "file": "abseil-cpp-20250814.1.tar.gz",
+        "url": "https://github.com/abseil/abseil-cpp/releases/download/20250814.1/abseil-cpp-20250814.1.tar.gz",
+        "sha256": "1692f77d1739bacf3f94337188b78583cf09bab7e420d2dc6c5605a4f86785a1"
+      },
+      {
+        "file": "abseil-cpp_20250814.1-1_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/abseil-cpp_20250814.1-1/abseil-cpp_20250814.1-1_patch.zip",
+        "sha256": "f44ad4d72ff2919a6a48cf0887f69aef34c338bfdd8931153596e3766d75f654"
+      },
+      {
+        "file": "fmt-12.0.0.tar.gz",
+        "url": "https://github.com/fmtlib/fmt/archive/12.0.0.tar.gz",
+        "sha256": "aa3e8fbb6a0066c03454434add1f1fc23299e85758ceec0d7d2d974431481e40"
+      },
+      {
+        "file": "fmt_12.0.0-1_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/fmt_12.0.0-1/fmt_12.0.0-1_patch.zip",
+        "sha256": "307f288ebf3850abf2f0c50ac1fb07de97df9538d39146d802f3c0d6cada8998"
+      },
+      {
+        "file": "brotli-1.1.0.tar.gz",
+        "url": "https://github.com/google/brotli/archive/v1.1.0.tar.gz",
+        "sha256": "e720a6ca29428b803f4ad165371771f5398faba397edf6778837a18599ea13ff"
+      },
+      {
+        "file": "google-brotli_1.1.0-3_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/google-brotli_1.1.0-3/google-brotli_1.1.0-3_patch.zip",
+        "sha256": "77e75a3bb019a4b653195a15af17cc65c56fb8cced2519154fce4e6bb43c74e2"
+      },
+      {
+        "file": "googletest-1.17.0.tar.gz",
+        "url": "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz",
+        "sha256": "65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c"
+      },
+      {
+        "file": "gtest_1.17.0-4_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/gtest_1.17.0-4/gtest_1.17.0-4_patch.zip",
+        "sha256": "3abf7662d09db706453a5b064a1e914678c74b9d9b0b19382747ca561d0d8750"
+      },
+      {
+        "file": "libusb-1.0.29.tar.bz2",
+        "url": "https://github.com/libusb/libusb/releases/download/v1.0.29/libusb-1.0.29.tar.bz2",
+        "sha256": "5977fc950f8d1395ccea9bd48c06b3f808fd3c2c961b44b0c2e6e29fc3a70a85"
+      },
+      {
+        "file": "libusb_1.0.29-2_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/libusb_1.0.29-2/libusb_1.0.29-2_patch.zip",
+        "sha256": "91aa91c553ae4325b6b5a2f473f346c3443f580f820aedd7ce53976847d50f15"
+      },
+      {
+        "file": "lz4-1.10.0.tgz",
+        "url": "https://github.com/lz4/lz4/archive/v1.10.0.tar.gz",
+        "sha256": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+      },
+      {
+        "file": "lz4_1.10.0-2_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/lz4_1.10.0-2/lz4_1.10.0-2_patch.zip",
+        "sha256": "ce568b4e1a7a593bb233f3ec97af88ceb850524cef802fe3f916b21d8a79b6b6"
+      },
+      {
+        "file": "pcre2-10.47.tar.bz2",
+        "url": "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.bz2",
+        "sha256": "47fe8c99461250d42f89e6e8fdaeba9da057855d06eb7fc08d9ca03fd08d7bc7"
+      },
+      {
+        "file": "pcre2_10.47-3_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/pcre2_10.47-3/pcre2_10.47-3_patch.zip",
+        "sha256": "42df135f63e216141ffcc30e3e7c8ae6bdea21f7638828cbab5f7ad484fa9044"
+      },
+      {
+        "file": "protobuf-25.2.tar.gz",
+        "url": "https://github.com/protocolbuffers/protobuf/releases/download/v25.2/protobuf-25.2.tar.gz",
+        "sha256": "8ff511a64fc46ee792d3fe49a5a1bcad6f7dc50dfbba5a28b0e5b979c17f9871"
+      },
+      {
+        "file": "protobuf_25.2-4_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/protobuf_25.2-4/protobuf_25.2-4_patch.zip",
+        "sha256": "a247e5c07938883fdfa840f47442bedf815613274c988c628061e4d3c6bb25d5"
+      },
+      {
+        "file": "zlib-1.3.2.tar.xz",
+        "url": "https://zlib.net/fossils/zlib-1.3.2.tar.xz",
+        "sha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3"
+      },
+      {
+        "file": "zlib_1.3.2-1_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/zlib_1.3.2-1/zlib_1.3.2-1_patch.zip",
+        "sha256": "5ae7a2e92f823df118cfb8c1b23d94e3117864392b3446581d669049b2fba6dd"
+      },
+      {
+        "file": "zstd-1.5.7.tar.gz",
+        "url": "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
+        "sha256": "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+      },
+      {
+        "file": "zstd_1.5.7-3_patch.zip",
+        "url": "https://github.com/mesonbuild/wrapdb/releases/download/zstd_1.5.7-3/zstd_1.5.7-3_patch.zip",
+        "sha256": "75ccb7b5bd26ae38b9d2db40ea4915504137835c15857ea833e70af1fe6f8686"
+      }
+    ],
+    "notices": {
+      "licenses/ADB-NOTICES.txt": "31cae917e080af63d34ca76b4cc221f0396ba727ee54a2cc8eb4f433bc0924e0",
+      "ADB-SOURCES.md": "daab8ca44715d2811f43aa14a2c1a39b6d5394953316b6a934ab69efdf2f593d"
+    }
   }
 }

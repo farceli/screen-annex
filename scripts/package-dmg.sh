@@ -20,6 +20,7 @@ DMG="$DIST/Screen Annex-${VERSION}.dmg"
 DMG_STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hosmirror-dmg.XXXXXX")" # 镜像源目录必须包含完整的 App 包。
 trap 'rm -rf "$DMG_STAGING_DIR"' EXIT # 正常完成和中途失败都回收本次专用暂存目录。
 ditto "$APP" "$DMG_STAGING_DIR/Screen Annex.app" # 保留签名、权限与包层级。
+python3 scripts/vendor_scrcpy.py adb-source --destination "$DMG_STAGING_DIR/Source Code" # 对应源码随镜像分发，用户拖入 App 时无需复制源码。
 rm -f "$DMG"
 # macOS 26+ recommends `diskutil image create from`; hdiutil is the fallback.
 if ! diskutil image create from --volumeName "Screen Annex" --format UDZO \

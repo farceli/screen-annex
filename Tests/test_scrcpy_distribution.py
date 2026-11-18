@@ -25,6 +25,11 @@ class ScrcpyDistributionTests(unittest.TestCase):
     def test_complete_windows_distribution_has_matching_sources(self):
         VENDOR.verify(self.resources, self.platform, False)  # 实际运行库和所有声明必须完整。
 
+    def test_missing_adb_usb_library_is_rejected(self):
+        (self.resources / "scrcpy" / self.platform / "AdbWinUsbApi.dll").unlink()  # 有 adb.exe 也可能因漏打包 USB DLL 无法连接。
+        with self.assertRaisesRegex(ValueError, "AdbWinUsbApi.dll"):
+            VENDOR.verify(self.resources, self.platform, False)
+
     def test_windows_release_uses_the_locked_client_and_keeps_its_patch(self):
         client = self.resources / "scrcpy" / self.platform / "scrcpy.exe"
         with self.assertRaises(ValueError):

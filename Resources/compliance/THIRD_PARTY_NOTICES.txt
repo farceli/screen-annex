@@ -47,4 +47,10 @@ zlib 由平台/工具链提供，上游 FFmpeg 构建开启 zlib。该宽松许�
 
 各组件原始声明、免责条款和源码内作者信息均保留。上游组件按各自许可证提供，不提供额外上游担保。
 完整来源、固定版本和 SHA-256：scrcpy.lock.json；落盘文件完整性清单：manifest.json。
-Android SDK Platform Tools 和鸿蒙 SDK 组件由用户单独安装。Windows 的 LibVLCSharp 和 LibVLC 由 NuGet 恢复，详见项目 THIRD_PARTY.md。
+
+7. Android Debug Bridge（ADB）36.0.1 — Apache 2.0 及随附依赖各自的许可
+从 AOSP 源码构建的 android-tools-static 36.0.1：https://github.com/meator/android-tools-static/releases/tag/36.0.1
+Windows 随附同版本构建产生的 AdbWinApi.dll 和 AdbWinUsbApi.dll。ADB 静态链接的 libusb 1.0.29 按 LGPL 2.1 提供对应源码与重新链接材料。
+原始声明及许可：licenses/ADB-NOTICES.txt。来源、源码和替换说明：ADB-SOURCES.md。
+
+鸿蒙 SDK 组件由用户单独安装。Windows 的 LibVLCSharp 和 LibVLC 由 NuGet 恢复，详见项目 THIRD_PARTY.md。

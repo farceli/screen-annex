@@ -12,7 +12,7 @@ Windows x64 的 scrcpy 已交叉编译，完整 WinUI 构建和可移植后端�
 # 添加 Rust 的 Windows x64 MSVC 目标。
 rustup target add x86_64-pc-windows-msvc
 
-# 准备锁定的 scrcpy 运行文件，然后构建 WinUI 和 Rust 内核。
+# 准备锁定的 ADB 和 scrcpy 运行文件，然后构建 WinUI 和 Rust 内核。
 python scripts/vendor_scrcpy.py install --download
 ./windows/build.ps1
 
@@ -22,8 +22,10 @@ python scripts/vendor_scrcpy.py install --download
 
 使用与项目依赖相符的 [Windows App Runtime 1.7](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads)。输出目录是用于本机测试的构建结果，分发前还需验证 Windows 运行环境和第三方组件的交付材料。
 
+准备公开分发时，先执行 `python scripts/vendor_scrcpy.py adb-source --download --destination .build/adb-sources`，再运行 `./windows/build.ps1 -IncludeAdbSource`，整包保留输出中的 `Source Code` 和 `Resources/compliance`。
+
 ## 连接手机
 
-- Android 使用单独安装的 [Android SDK Platform Tools](https://developer.android.com/tools/releases/platform-tools)。默认查找 `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe` 和 `PATH`。可以用 `HOSMIRROR_ADB` 指定绝对路径。
+- Android 使用随包的 ADB 和 scrcpy。可以用 `HOSMIRROR_ADB` 指定自选 ADB 的绝对路径。Windows 上部分机型需要安装 [对应的 USB 驱动](https://developer.android.com/studio/run/oem-usb)。
 - HarmonyOS 参见 [本机组件配置](../docs/HARMONYOS.md)。默认目录为 `%LOCALAPPDATA%\Screen Annex\HarmonyOS`。
 - 开启手机调试功能并确认授权后，从设备列表或任务栏通知区域发起投屏。

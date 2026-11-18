@@ -8,6 +8,8 @@ struct OpenSourceLicensesView: View {
     private let entries: [(String, String)] = [ // 路径与打包校验器使用相同文件约定。
         ("组件与版权声明", "THIRD_PARTY_NOTICES.txt"), // 包含准确版本、原始来源及许可边界。
         ("scrcpy · Apache 2.0", "licenses/scrcpy-LICENSE.txt"), // 保留完整英文原文。
+        ("ADB 与依赖许可", "licenses/ADB-NOTICES.txt"), // 展示实际随包 ADB 及其静态依赖的原始声明。
+        ("ADB 源码与重新构建", "ADB-SOURCES.md"), // 说明发行包中对应源码的位置和替换方法。
         ("FFmpeg · LGPL 2.1", "licenses/FFmpeg-LGPL-2.1.txt"), // 实际采用的 FFmpeg 许可。
         ("libusb · LGPL 2.1", "licenses/libusb-COPYING.txt"), // 静态链接也提供源码与重建说明。
         ("SDL · zlib", "licenses/SDL-LICENSE.txt"), // 不冒认上游代码来源。

@@ -23,7 +23,7 @@
 需要 macOS 14+、Swift 6 工具链、Python 3.11+ 和 curl。在仓库根目录执行：
 
 ```bash
-# 从上游下载锁定的 scrcpy 运行文件并核对 SHA-256。
+# 从上游下载锁定的 ADB 和 scrcpy 运行文件并核对 SHA-256。
 python3 scripts/vendor_scrcpy.py install --download
 
 # 构建并本机签名，然后打开应用。
@@ -31,7 +31,7 @@ python3 scripts/vendor_scrcpy.py install --download
 open "dist/Screen Annex.app"
 ```
 
-`./scripts/package-dmg.sh` 可生成本地测试用 DMG。项目的公开 macOS 安装包使用 Developer ID 签名和 Apple 公证流程，入口为 [scripts/notarize.sh](scripts/notarize.sh)。
+生成 DMG 前，执行 `python3 scripts/vendor_scrcpy.py adb-source --download --destination .build/adb-sources` 准备对应源码，再运行 `./scripts/package-dmg.sh`。源码随镜像提供。项目的公开 macOS 安装包使用 Developer ID 签名和 Apple 公证流程，入口为 [scripts/notarize.sh](scripts/notarize.sh)。
 
 ### Windows
 
@@ -39,9 +39,10 @@ open "dist/Screen Annex.app"
 
 ### 连接 Android
 
-1. 安装 Google 官方 [Android SDK Platform Tools](https://developer.android.com/tools/releases/platform-tools)。Screen Annex 会查找 Android Studio 默认 SDK 路径和 `PATH`。自定义位置可通过 `HOSMIRROR_ADB` 指定 `adb` 或 `adb.exe` 的绝对路径。
-2. 手机开启开发者选项和 USB 调试，连接电脑，在手机上确认调试授权。
-3. 在设备列表点击「投屏」。使用无线调试时，先填写配对页面的地址和配对码，再填写无线调试主页的连接地址。配对端口和连接端口通常不同。
+1. Screen Annex 已内置 ADB 和 scrcpy。手机开启开发者选项和 USB 调试，连接电脑后在手机上确认授权。Windows 上如系统未识别调试接口，按机型安装 [USB 驱动](https://developer.android.com/studio/run/oem-usb)。
+2. 在设备列表点击「投屏」。内置 ADB 的无线连接使用手动地址。先填写配对页面的地址和配对码，再填写无线调试主页的连接地址。配对端口和连接端口通常不同。
+
+如需使用自己的 ADB，可用 `HOSMIRROR_ADB` 指定 `adb` 或 `adb.exe` 的绝对路径。
 
 ### 连接 HarmonyOS
 
