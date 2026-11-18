@@ -17,7 +17,7 @@
     "compliance/rebuild_scrcpy.sh": "80b954f10f85d9362648de20f5a3c802ccff653861e07e2bc7b55219cb508a61",
     "compliance/scrcpy-macos-titlebar.patch": "05c585d7eeb3aee7b07879c96a086a057e5a1666b301c99379008e96eea0968e",
     "compliance/scrcpy-windows-events.patch": "b8d7771c3767c25da8ee1b94c71644b9d0013d591d763c3a4f309c6bf9dd2d4a",
-    "compliance/scrcpy.lock.json": "32a581ebabc5dca944a32789f5750d47a733189254abed7b062b3bda2280ce25",
+    "compliance/scrcpy.lock.json": "f772a8d32a2091b6278ac9fb56ea7a5cb0c6431a5ed8e9322b16c500e7a29c81",
     "compliance/sources/dav1d-1.5.4.tar.xz": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5",
     "compliance/sources/ffmpeg-9.0.2.tar.xz": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
     "compliance/sources/libusb-1.0.30.tar.gz": "2ae28adb0bb9558c86135c4e1c11b320b0805461e207a64a6e520a114094bf07",
