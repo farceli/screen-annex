@@ -758,19 +758,10 @@ public sealed partial class MirrorWindow : Window
         finally { e.Handled = true; deferral.Complete(); }
     }
 
-    internal static async Task<string[]> PickFilesAsync(IntPtr hwnd)
-    {
-        var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
-        picker.FileTypeFilter.Add("*");
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-        var items = await picker.PickMultipleFilesAsync();
-        return items?.Select(item => item.Path).ToArray() ?? [];
-    }
-
     private async void OnPickFiles(object sender, RoutedEventArgs e)
     {
         if (!_ready) return;
-        try { QueueFiles(await PickFilesAsync(Handle)); }
+        try { QueueFiles(await MainWindow.PickFilesAsync(Handle)); }
         catch (Exception error) { Notify(error.Message, InfoBarSeverity.Error); }
     }
 

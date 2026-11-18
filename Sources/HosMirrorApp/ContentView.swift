@@ -5,7 +5,7 @@ import HosMirrorCore
 struct ContentView: View {
     @ObservedObject var panel: SettingsPanelModel
     @State private var showWireless = false // 侧栏只放入口，配对表单在原生面板中展开。
-    @State private var wirelessPlatform = WirelessPlatform.harmony
+    @State private var wirelessPlatform = WirelessPlatform.defaultPlatform
     @State private var wirelessAddress = ""
     @State private var pairingAddress = ""
     @State private var pairingCode = ""
@@ -127,11 +127,13 @@ struct ContentView: View {
 
     private var wirelessBox: some View { // 原生控件区分 Android 的配对端口与连接端口。
         VStack(alignment: .leading, spacing: 8) {
-            Picker("设备系统", selection: $wirelessPlatform) { // 用户明确选择所使用的连接工具。
-                ForEach(WirelessPlatform.allCases) { Text($0.rawValue).tag($0) } // 不根据地址猜测设备系统。
+            if ReleaseFeatures.harmonyEnabled {
+                Picker("设备系统", selection: $wirelessPlatform) { // 用户明确选择所使用的连接工具。
+                    ForEach(WirelessPlatform.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden() // 选择器仍有辅助功能标签。
             }
-            .pickerStyle(.segmented)
-            .labelsHidden() // 选择器仍有辅助功能标签。
             HStack(spacing: 6) {
                 TextField("连接 IP:端口", text: $wirelessAddress)
                     .textFieldStyle(.roundedBorder)

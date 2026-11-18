@@ -1,0 +1,153 @@
+name: Release Android desktop apps
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+            runtime: macos-aarch64
+          - runner: macos-15-intel
+            architecture: x64
+            runtime: macos-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare locked Android runtime
+        run: python3 scripts/vendor_scrcpy.py install --download
+      - name: Build and package the ad-hoc signed Android app
+        env:
+          SCREEN_ANNEX_ANDROID_RELEASE: '1'
+          ARCHITECTURE: ${{ matrix.architecture }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          set -euo pipefail
+          ./scripts/build-app.sh
+          ./scripts/package-dmg.sh --no-build --separate-adb-source
+          runtime="dist/Screen Annex.app/Contents/Resources/scrcpy/$RUNTIME"
+          "$runtime/adb" version
+          "$runtime/scrcpy" --version
+          mkdir release-assets
+          dmg="release-assets/Screen-Annex-macos-$ARCHITECTURE.dmg"
+          mv dist/Screen\ Annex-*.dmg "$dmg"
+          hdiutil verify "$dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.architecture }}
+          path: release-assets/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Prepare locked Android runtime
+        run: python scripts/vendor_scrcpy.py install --download
+      - name: Build self-contained Android app
+        run: ./windows/build.ps1 -AndroidRelease
+      - name: Verify and package Windows x64
+        run: |
+          $app = Resolve-Path 'dist/android-windows-x64'
+          & "$app/Resources/scrcpy/windows-x86_64/adb.exe" version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled ADB failed" }
+          & "$app/Resources/scrcpy/windows-x86_64/scrcpy.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled scrcpy failed" }
+          # 启动真实 WinUI 主窗口，并关闭本步骤创建的测试进程。
+          $process = Start-Process -FilePath "$app/ScreenAnnex.exe" -WorkingDirectory $app -PassThru
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Screen Annex exited during startup ($($process.ExitCode))" }
+              if ($process.MainWindowHandle -ne [IntPtr]::Zero) { break }
+              Start-Sleep -Seconds 1
+            }
+            if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw "Screen Annex did not open its main window" }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -InputObject $process }
+          }
+          mkdir release-assets
+          # 保留发布目录结构，让用户解压后即可运行。
+          Compress-Archive -Path "$app/*" -DestinationPath release-assets/Screen-Annex-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: release-assets/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  adb-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package corresponding ADB source and build inputs
+        run: |
+          python3 scripts/vendor_scrcpy.py adb-source --download --destination 'Source Code'
+          mkdir release-assets
+          version=$(python3 -c 'import json; print(json.load(open("third_party/scrcpy.lock.json"))["adb"]["version"])')
+          zip -0 -q -r "release-assets/ADB-$version-corresponding-source.zip" 'Source Code'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adb-source
+          path: release-assets/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: [macos, windows, adb-source]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish verified binaries and corresponding source together
+        run: |
+          set -euo pipefail
+          tag="v$(python3 -c 'import plistlib; print(plistlib.load(open("Info.plist", "rb"))["CFBundleShortVersionString"])')"
+          adb=$(python3 -c 'import json; print(json.load(open("third_party/scrcpy.lock.json"))["adb"]["version"])')
+          cd release-assets
+          files=(Screen-Annex-macos-arm64.dmg Screen-Annex-macos-x64.dmg Screen-Annex-windows-x64.zip "ADB-$adb-corresponding-source.zip")
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" \
+            --title "Screen Annex $tag · Android 预览版" --notes-file ../docs/RELEASE_NOTES.md
+          gh release upload "$tag" "${files[@]}" SHA256SUMS.txt
+          # 只有全部附件已上传且 GitHub 计算的摘要与构建结果一致，才公开草稿。
+          release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[] | "\(.digest | sub(\"^sha256:\"; \"\"))  \(.name)"' > uploaded.txt
+          while IFS= read -r expected; do
+            if ! grep -Fqx "$expected" uploaded.txt; then
+              printf 'Release asset missing or has a different checksum: %s\n' "$expected" >&2
+              exit 1
+            fi
+          done < <(cat SHA256SUMS.txt; sha256sum SHA256SUMS.txt)
+          gh release edit "$tag" --draft=false

@@ -17,6 +17,9 @@ export TMPDIR="$PWD/.build/tmp"
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang"
 export SWIFT_MODULE_CACHE_PATH="$PWD/.build/swift"
 FLAGS=(--disable-sandbox --cache-path .build/cache --scratch-path .build/scratch)
+if [[ ${SCREEN_ANNEX_ANDROID_RELEASE:-0} == 1 ]]; then
+  FLAGS+=(-Xswiftc -DANDROID_RELEASE) # 公开包仅显示 Android 设备和对应设置。
+fi
 mkdir -p .build/tmp .build/clang .build/swift
 
 # Swift Build 可能把部署下限同时写成链接 SDK。显式记录实际 SDK，让 AppKit 采用与 scrcpy 一致的标题栏度量。

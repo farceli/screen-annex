@@ -10,11 +10,16 @@ namespace HosMirror.Windows;
 public sealed partial class MainWindow : Window
 {
     private readonly string _resources = Path.Combine(AppContext.BaseDirectory, "Resources");
+    // Android 发行版只加载 Android 后端，鸿蒙仍可在开发构建中使用。
+#if ANDROID_RELEASE
+    private const string _hdc = "";
+#else
     private readonly string _harmonyResources;
     private readonly string _hdc;
+    private readonly Dictionary<string, MirrorWindow> _mirrors = new();
+#endif
     private readonly AndroidBackend _android;
     private readonly MirrorPreferences _preferences = MirrorPreferences.Load();
-    private readonly Dictionary<string, MirrorWindow> _mirrors = new();
     private readonly HashSet<string> _closingMirrors = new();
     private readonly Dictionary<string, CancellationTokenSource> _androidRetries = new();
     private readonly Dictionary<string, ReconnectPolicy> _androidPolicies = new();
@@ -42,12 +47,14 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         AppWindow.Resize(new(690, 480));
+#if !ANDROID_RELEASE
         string? configuredHarmony = Environment.GetEnvironmentVariable("HOSMIRROR_HARMONY_RESOURCES");
         // SDK 单独安装，旧版本地构建仍可使用原有的 Resources 布局。
         _harmonyResources = !string.IsNullOrWhiteSpace(configuredHarmony) ? configuredHarmony :
             File.Exists(Path.Combine(_resources, "tools", "hdc.exe")) ? _resources :
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Screen Annex", "HarmonyOS");
         _hdc = Path.Combine(_harmonyResources, "tools", "hdc.exe");
+#endif
         _android = new AndroidBackend(_resources)
         {
             Report = Report, Exited = AndroidExited,
@@ -111,8 +118,11 @@ public sealed partial class MainWindow : Window
         _androidNotices.Clear();
         try
         {
-            await Task.WhenAll(_mirrors.Values.ToArray().Select(window => window.CloseAsync())
-                .Concat(_transferTasks.ToArray()).Append(_android.StopAllAsync()));
+            var tasks = _transferTasks.ToArray().Append(_android.StopAllAsync());
+#if !ANDROID_RELEASE
+            tasks = tasks.Concat(_mirrors.Values.ToArray().Select(window => window.CloseAsync()));
+#endif
+            await Task.WhenAll(tasks);
         }
         finally
         {
@@ -148,7 +158,12 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            var groups = await Task.WhenAll(Read("HarmonyOS", HarmonyDevicesAsync), Read("Android", _android.DevicesAsync));
+            var android = Read("Android", _android.DevicesAsync);
+#if ANDROID_RELEASE
+            var groups = new[] { await android };
+#else
+            var groups = await Task.WhenAll(Read("HarmonyOS", HarmonyDevicesAsync), android);
+#endif
             if (_closing) return;
             // 同一设备的 USB 入口优先；两个系统即使序列号相同也保留独立入口。
             var devices = groups.SelectMany(group => group).Select(device =>
@@ -184,6 +199,7 @@ public sealed partial class MainWindow : Window
         finally { _refreshing = false; }
     }
 
+#if !ANDROID_RELEASE
     private async Task<IReadOnlyList<DeviceChoice>> HarmonyDevicesAsync()
     {
         if (!File.Exists(_hdc)) return []; // 可选 SDK 缺失时仍正常刷新 Android。
@@ -210,6 +226,7 @@ public sealed partial class MainWindow : Window
             catch (Exception) { return device; } // 旧设备仍可通过调试标识打开投屏。
         }));
     }
+#endif
 
     private void RebuildDevices()
     {
@@ -223,7 +240,11 @@ public sealed partial class MainWindow : Window
             DevicesPanel.Children.Add(new TextBlock { Text = group.Key, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
             foreach (var device in group) AddDevice(device);
         }
-        var offline = _preferences.History.Values.Where(item => visible.All(device => device.Key != item.Key)).ToArray();
+        var offline = _preferences.History.Values.Where(item =>
+#if ANDROID_RELEASE
+            item.IsAndroid &&
+#endif
+            visible.All(device => device.Key != item.Key)).ToArray();
         if (offline.Length > 0)
         {
             var history = new StackPanel { Spacing = 6 };
@@ -238,16 +259,28 @@ public sealed partial class MainWindow : Window
 
     private bool IsMirroring(DeviceChoice device) =>
         device.IsAndroid ? _android.IsRunning(device) || _androidRetries.ContainsKey(device.Key)
+#if ANDROID_RELEASE
+            : false;
+#else
             : _mirrors.ContainsKey(device.Key);
+#endif
 
     private void AddDevice(DeviceChoice device)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         bool active = IsMirroring(device);
         bool online = _online.Any(candidate => candidate.Key == device.Key && candidate.CanConnect);
-        bool starting = active && (_androidRetries.ContainsKey(device.Key) ||
-            device.IsAndroid && !_androidReady.Contains(device.Key) ||
-            _mirrors.TryGetValue(device.Key, out var connectingMirror) && connectingMirror.IsConnecting);
+        bool starting = _androidRetries.ContainsKey(device.Key) || device.IsAndroid && !_androidReady.Contains(device.Key);
+        bool pinned = _preferences.Pinned(device);
+        string? harmonyStatus = null;
+#if !ANDROID_RELEASE
+        if (_mirrors.TryGetValue(device.Key, out var mirror))
+        {
+            starting = mirror.IsConnecting;
+            pinned = mirror.IsPinned;
+            harmonyStatus = mirror.ConnectionLabel;
+        }
+#endif
         var connect = new Button { Content = active ? (starting ? "取消" : "断开") : "投屏", IsEnabled = active || online };
         connect.Click += async (_, _) =>
         {
@@ -258,18 +291,26 @@ public sealed partial class MainWindow : Window
         if (active)
         {
             var show = new Button { Content = "显示窗口" };
-            show.Click += (_, _) => { if (device.IsAndroid) WindowNative.Show(_android.Handle(device)); else if (_mirrors.TryGetValue(device.Key, out var mirror)) mirror.Show(); };
+            show.Click += (_, _) =>
+            {
+                if (device.IsAndroid) WindowNative.Show(_android.Handle(device));
+#if !ANDROID_RELEASE
+                else if (_mirrors.TryGetValue(device.Key, out var current)) current.Show();
+#endif
+            };
             row.Children.Add(show);
         }
         var rename = new Button { Content = "重命名" };
         rename.Click += async (_, _) => await RenameAsync(device);
         row.Children.Add(rename);
-        var pin = new ToggleButton { Content = "置顶", IsChecked = _mirrors.TryGetValue(device.Key, out var pinnedMirror) ? pinnedMirror.IsPinned : _preferences.Pinned(device) };
+        var pin = new ToggleButton { Content = "置顶", IsChecked = pinned };
         pin.Click += (_, _) =>
         {
             bool enabled = pin.IsChecked == true;
             _preferences.Pins[device.Key] = enabled;
-            if (_mirrors.TryGetValue(device.Key, out var mirror)) mirror.SetPinned(enabled);
+#if !ANDROID_RELEASE
+            if (_mirrors.TryGetValue(device.Key, out var current)) current.SetPinned(enabled);
+#endif
             if (device.IsAndroid) WindowNative.SetPinned(_android.Handle(device), enabled);
             SavePreferences();
         };
@@ -279,7 +320,7 @@ public sealed partial class MainWindow : Window
             var transfer = new Button { Content = "传输文件…", IsEnabled = online };
             transfer.Click += async (_, _) =>
             {
-                try { await QueueAndroidFilesAsync(device, await MirrorWindow.PickFilesAsync(_native.Handle)); }
+                try { await QueueAndroidFilesAsync(device, await PickFilesAsync(_native.Handle)); }
                 catch (Exception error) { Report(error.Message); }
             };
             row.Children.Add(transfer);
@@ -297,10 +338,10 @@ public sealed partial class MainWindow : Window
         {
             Header = _preferences.Name(device) + " · " + (
                 _android.IsStopping(device) || _closingMirrors.Contains(device.Key) ? "正在断开" :
-                _mirrors.TryGetValue(device.Key, out var current) ? current.ConnectionLabel :
+                harmonyStatus ?? (
                 _androidRetries.ContainsKey(device.Key) ? "正在重连" :
                 active ? (_androidReady.Contains(device.Key) ? "正在投屏" : "正在连接") :
-                device.CanConnect ? "在线" : device.State == "unauthorized" ? "待授权" : "离线"),
+                device.CanConnect ? "在线" : device.State == "unauthorized" ? "待授权" : "离线")),
             Content = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Enabled, Content = row },
             HorizontalAlignment = HorizontalAlignment.Stretch,
             IsExpanded = _expanded.Contains(device.Key),
@@ -334,6 +375,16 @@ public sealed partial class MainWindow : Window
         DevicesPanel.Children.Add(card);
     }
 
+    internal static async Task<string[]> PickFilesAsync(IntPtr hwnd)
+    {
+        // 使用调用窗口作为系统文件选择器的所有者，两种设备后端可共用。
+        var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        var items = await picker.PickMultipleFilesAsync();
+        return items?.Select(item => item.Path).ToArray() ?? [];
+    }
+
     private void StartMirror(DeviceChoice device)
     {
         if (_closing || IsMirroring(device) || _closingMirrors.Contains(device.Key)) return;
@@ -346,6 +397,7 @@ public sealed partial class MainWindow : Window
                 _androidPolicies[device.Key] = policy;
                 StartAndroid(device);
             }
+#if !ANDROID_RELEASE
             else
             {
                 var mirror = new MirrorWindow(device, _harmonyResources, _hdc, _preferences, SavePreferences, RecordTransfer,
@@ -357,6 +409,7 @@ public sealed partial class MainWindow : Window
                 mirror.Closed += (_, _) => { _mirrors.Remove(device.Key); _closingMirrors.Remove(device.Key); RebuildDevices(); };
                 mirror.Activate();
             }
+#endif
         }
         catch (Exception error) { _androidPolicies.Remove(device.Key); Report(error.Message); }
         RebuildDevices();
@@ -421,17 +474,30 @@ public sealed partial class MainWindow : Window
             await stop;
             RebuildDevices();
         }
+#if !ANDROID_RELEASE
         else if (_mirrors.TryGetValue(device.Key, out var mirror) && _closingMirrors.Add(device.Key)) await mirror.CloseAsync();
+#endif
     }
 
-    private IEnumerable<IntPtr> MirrorHandles() => _mirrors.Values.Select(window => window.Handle)
-        .Concat(_preferences.History.Values.Where(device => device.IsAndroid).Select(_android.Handle));
+    private IEnumerable<IntPtr> MirrorHandles()
+    {
+        var android = _preferences.History.Values.Where(device => device.IsAndroid).Select(_android.Handle);
+#if ANDROID_RELEASE
+        return android;
+#else
+        return _mirrors.Values.Select(window => window.Handle).Concat(android);
+#endif
+    }
 
     private bool FitMirrorGroup(IntPtr anchor)
     {
         if (anchor == IntPtr.Zero) return false;
+#if ANDROID_RELEASE
+        return _windowGroup.Fit(anchor, MirrorHandles(), _ => 0);
+#else
         return _windowGroup.Fit(anchor, MirrorHandles(), handle =>
             _mirrors.Values.FirstOrDefault(window => window.Handle == handle)?.VideoInset ?? 0);
+#endif
     }
 
     private void OnFitGroup(object sender, RoutedEventArgs e)
@@ -456,41 +522,49 @@ public sealed partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(box.Text)) _preferences.Aliases.Remove(device.Key);
         else _preferences.Aliases[device.Key] = box.Text.Trim();
         SavePreferences();
+#if !ANDROID_RELEASE
         if (_mirrors.TryGetValue(device.Key, out var mirror)) mirror.RefreshTitle();
+#endif
         WindowNative.Rename(_android.Handle(device), $"「Android」{_preferences.Name(device)}");
         RebuildDevices();
     }
 
     private async void OnWireless(object sender, RoutedEventArgs e)
     {
-        var kind = new ComboBox { Header = "操作", ItemsSource = new[] { "HarmonyOS 无线连接", "Android 无线连接", "Android 配对" }, SelectedIndex = 0 };
+        string[] operations = ["Android 无线连接", "Android 配对"];
+#if !ANDROID_RELEASE
+        operations = [.. operations, "HarmonyOS 无线连接"];
+#endif
+        var kind = new ComboBox { Header = "操作", ItemsSource = operations, SelectedIndex = 0 };
         var address = new TextBox { Header = "手机显示的地址和端口", PlaceholderText = "192.168.1.10:12345" };
         var code = new PasswordBox { Header = "六位配对码", Visibility = Visibility.Collapsed, MaxLength = 6 };
-        kind.SelectionChanged += (_, _) => code.Visibility = kind.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+        kind.SelectionChanged += (_, _) => code.Visibility = kind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         var fields = new StackPanel { Spacing = 8 };
         fields.Children.Add(kind); fields.Children.Add(address); fields.Children.Add(code);
         if (await ShowDialogAsync("无线调试", fields, "继续") != ContentDialogResult.Primary) return;
         try
         {
-            if (kind.SelectedIndex == 2)
+            if (kind.SelectedIndex == 1)
             {
                 await _android.PairAsync(address.Text, code.Password);
                 Report("配对成功。请使用无线调试主页上的连接地址连接。");
             }
-            else if (kind.SelectedIndex == 1)
+            else if (kind.SelectedIndex == 0)
             {
                 await _android.ConnectAsync(address.Text);
                 Report("Android 无线调试已连接");
             }
+#if !ANDROID_RELEASE
             else
             {
-                if (!File.Exists(_hdc)) throw new IOException("请先按 README 配置本机 HarmonyOS 组件。");
+                if (!File.Exists(_hdc)) throw new IOException("请先配置本机 HarmonyOS 调试组件。");
                 string result = await DeviceTools.RunAsync(_hdc, ["tconn", DeviceTools.Address(address.Text)]);
                 if (!result.Contains("connect OK", StringComparison.OrdinalIgnoreCase) &&
                     !result.Contains("already connected", StringComparison.OrdinalIgnoreCase))
                     throw new IOException(result);
                 Report("HarmonyOS 无线调试已连接");
             }
+#endif
             await RefreshDevices();
         }
         catch (Exception error) { Report(error.Message); }
@@ -501,32 +575,41 @@ public sealed partial class MainWindow : Window
 
     private async void OpenSettings()
     {
+#if !ANDROID_RELEASE
         var fps = Options("目标帧率", new[] { 15, 30, 60 }, _preferences.FrameRate);
         var bitrate = Options("目标码率（Mbps）", new[] { 2, 4, 8, 12, 16, 20, 24 }, _preferences.Bitrate);
         var scale = Options("鸿蒙分辨率", new[] { "原始", "50%" }, _preferences.Scale == 0.5 ? "50%" : "原始");
         var theme = Options("鸿蒙投屏窗口外观", new[] { "浅色", "深色", "跟随系统" },
             _preferences.Appearance == "Dark" ? "深色" : _preferences.Appearance == "Default" ? "跟随系统" : "浅色");
+        var harmonyPath = new TextBox { Header = "HarmonyOS 手机保存目录", Text = _preferences.HarmonyDestination };
+        var balance = new Button { Content = "恢复平衡画质" };
+        balance.Click += (_, _) => { fps.SelectedItem = 30; bitrate.SelectedItem = 16; scale.SelectedIndex = 0; };
+#endif
         var reconnect = Toggle("自动重连", _preferences.AutoReconnect);
         var pin = Toggle("连接后自动置顶窗口", _preferences.AutoPin);
         var snap = Toggle("投屏窗口磁吸", _preferences.SnapWindows);
         var lockPhones = Toggle("电脑锁屏时锁定在线手机", _preferences.LockPhones);
         var wakePhones = Toggle("电脑解锁时唤醒在线手机", _preferences.WakePhones);
-        var harmonyPath = new TextBox { Header = "HarmonyOS 手机保存目录", Text = _preferences.HarmonyDestination };
         var androidPath = new TextBox { Header = "Android 手机保存目录", Text = _preferences.AndroidDestination };
-        var balance = new Button { Content = "恢复平衡画质" };
-        balance.Click += (_, _) => { fps.SelectedItem = 30; bitrate.SelectedItem = 16; scale.SelectedIndex = 0; };
         var fields = new StackPanel { Spacing = 8 };
-        foreach (var field in new UIElement[] { fps, bitrate, scale, balance, theme, reconnect, pin, snap, lockPhones, wakePhones, harmonyPath, androidPath })
+        foreach (var field in new UIElement[] {
+#if !ANDROID_RELEASE
+            fps, bitrate, scale, balance, theme, harmonyPath,
+#endif
+            reconnect, pin, snap, lockPhones, wakePhones, androidPath })
             fields.Children.Add(field);
         if (await ShowDialogAsync("设置", new ScrollViewer { MaxHeight = 560, Content = fields }, "保存") != ContentDialogResult.Primary) return;
         try
         {
-            var harmonyDirectory = DeviceTools.DirectoryPath(harmonyPath.Text);
             var androidDirectory = DeviceTools.DirectoryPath(androidPath.Text);
+#if !ANDROID_RELEASE
+            var harmonyDirectory = DeviceTools.DirectoryPath(harmonyPath.Text);
             _preferences.FrameRate = fps.SelectedItem is int rate ? rate : 30;
             _preferences.Bitrate = bitrate.SelectedItem is int bits ? bits : 16;
             _preferences.Scale = scale.SelectedIndex == 1 ? 0.5 : 1;
             _preferences.Appearance = theme.SelectedIndex == 1 ? "Dark" : theme.SelectedIndex == 2 ? "Default" : "Light";
+            _preferences.HarmonyDestination = harmonyDirectory;
+#endif
             _preferences.AutoReconnect = reconnect.IsOn;
             _preferences.AutoPin = pin.IsOn;
             _preferences.SnapWindows = snap.IsOn;
@@ -534,11 +617,12 @@ public sealed partial class MainWindow : Window
             else { _groupTimer.Stop(); _windowGroup.Reset(); }
             _preferences.LockPhones = lockPhones.IsOn;
             _preferences.WakePhones = wakePhones.IsOn;
-            _preferences.HarmonyDestination = harmonyDirectory;
             _preferences.AndroidDestination = androidDirectory;
             SavePreferences();
+#if !ANDROID_RELEASE
             foreach (var mirror in _mirrors.Values) mirror.RefreshAppearance();
-            Report("设置已保存。画质与 Android 拖放目录在下次连接时生效。");
+#endif
+            Report("设置已保存。Android 拖放目录在下次连接时生效。");
         }
         catch (Exception error) { Report(error.Message); }
     }

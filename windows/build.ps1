@@ -1,27 +1,66 @@
-# 构建用于本机测试的 Windows x64 程序，并验证必需运行时资源。
-param([switch]$IncludeAdbSource) # 公开分发时把 ADB 对应源码放进可整体压缩的输出目录。
+# 默认构建开发版。Android 发行版自带运行时，单独生成全新的输出目录。
+param([switch]$IncludeAdbSource, [switch]$AndroidRelease)
 
 $ErrorActionPreference = "Stop" # PowerShell 自身操作失败时立即停止。
 $root = Split-Path -Parent $PSScriptRoot # 项目根目录。
 $app = Join-Path $PSScriptRoot "HosMirror.Windows" # WinUI 工程目录。
-$output = Join-Path $root "dist\windows-x64" # 显式输出目录，避免猜测 SDK 的 RID 子目录。
+$output = Join-Path $root $(if ($AndroidRelease) { "dist\android-windows-x64" } else { "dist\windows-x64" })
+if ($AndroidRelease -and (Test-Path $output)) { throw "请为 Android 发行版使用空的输出目录：$output" } # 防止旧文件进入公开包。
 $vendor = Join-Path $root "scripts\vendor_scrcpy.py" # 构建前后使用同一个运行材料校验器。
 python $vendor verify # Android 官方文件、许可证与对应源码必须完整。
 if ($LASTEXITCODE -ne 0) { throw "Android 内置组件或合规材料校验失败。" } # 禁止用缺少材料的资源继续发布。
 
-Push-Location (Join-Path $root "core") # Rust 命令在 core 中执行。
-try {
-    cargo build --locked --release --target x86_64-pc-windows-msvc # 生成版本锁约束下的原生协议 DLL。
-    if ($LASTEXITCODE -ne 0) { throw "cargo build failed: $LASTEXITCODE" } # 外部程序失败不会自动受 ErrorActionPreference 保护。
-} finally { Pop-Location } # 任意失败都恢复调用者目录。
+if (!$AndroidRelease) {
+    Push-Location (Join-Path $root "core")
+    try {
+        cargo build --locked --release --target x86_64-pc-windows-msvc # 开发版的鸿蒙协议 DLL。
+        if ($LASTEXITCODE -ne 0) { throw "cargo build failed: $LASTEXITCODE" }
+    } finally { Pop-Location }
+}
 
 Push-Location $app # 切换到 WinUI 工程。
 try {
-    dotnet build -c Release -p:Platform=x64 -r win-x64 --self-contained false -o $output # 统一构建和资源复制目的地。
-    if ($LASTEXITCODE -ne 0) { throw "dotnet build failed: $LASTEXITCODE" } # 不继续发布失败构建的旧产物。
+    if ($AndroidRelease) {
+        $version = python -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1], "rb"))["CFBundleShortVersionString"])' (Join-Path $root 'Info.plist')
+        if ($LASTEXITCODE -ne 0) { throw "无法读取 Screen Annex 发行版本。" }
+        dotnet publish -c Release -p:Platform=x64 -p:AndroidRelease=true "-p:Version=$version" -r win-x64 --self-contained true -o $output
+    } else {
+        dotnet build -c Release -p:Platform=x64 -r win-x64 --self-contained false -o $output
+    }
+    if ($LASTEXITCODE -ne 0) { throw "dotnet build or publish failed: $LASTEXITCODE" }
 } finally { Pop-Location } # 恢复原目录。
 
-foreach ($relative in @("ScreenAnnex.exe", "hosmirror_core.dll", "LICENSE")) {
+$required = @("ScreenAnnex.exe", "LICENSE")
+if ($AndroidRelease) {
+    $required += @("hostfxr.dll", "coreclr.dll", "Microsoft.UI.Xaml.dll", "Microsoft.WindowsAppRuntime.dll")
+    # 最终发布材料拒绝任何来自鸿蒙播放器或协议后端的残留文件。
+    $harmonyFiles = Get-ChildItem $output -File -Recurse | Where-Object { $_.Name -match '^(LibVLC|VideoLAN|hosmirror_core|hdc\.exe)' }
+    if ($harmonyFiles) { throw "Android 发行版包含鸿蒙依赖：$($harmonyFiles.Name -join ', ')" }
+
+    # 用实际解析的版本复制 Microsoft 再分发组件的原始许可和声明。
+    $assets = Get-Content (Join-Path $app 'obj/project.assets.json') -Raw | ConvertFrom-Json -AsHashtable
+    $deps = Get-Content (Join-Path $output 'ScreenAnnex.deps.json') -Raw | ConvertFrom-Json -AsHashtable
+    $sdk = @($assets.libraries.Keys | Where-Object { $_ -like 'Microsoft.WindowsAppSDK/*' })
+    $runtimes = @($deps.libraries.Keys | Where-Object { $_ -like 'runtimepack.Microsoft.*' })
+    if ($sdk.Count -ne 1 -or $runtimes.Count -eq 0) { throw "无法确定 Windows 发布包的运行时版本。" }
+    foreach ($entry in ($sdk + $runtimes)) {
+        $package, $version = ($entry -replace '^runtimepack\.', '') -split '/', 2
+        $relative = "$($package.ToLowerInvariant())/$version"
+        $packagePath = $assets.packageFolders.Keys | ForEach-Object { Join-Path $_ $relative } |
+            Where-Object { Test-Path $_ -PathType Container } | Select-Object -First 1
+        if (!$packagePath) { throw "未找到 $package $version 的 NuGet 包。" }
+        $notices = Get-ChildItem $packagePath -File | Where-Object { $_.Name -match '^(license|notice|third[-_ ]?party[-_ ]?notices)\.txt$' }
+        if (!($notices | Where-Object { $_.Name -match '^license\.' }) -or $notices.Count -lt 2) {
+            throw "$package $version 缺少许可或第三方声明文件。"
+        }
+        $noticeDirectory = Join-Path $output "Licenses/$package"
+        New-Item $noticeDirectory -ItemType Directory -Force | Out-Null
+        $notices | Copy-Item -Destination $noticeDirectory
+    }
+} else {
+    $required += "hosmirror_core.dll"
+}
+foreach ($relative in $required) {
     if (!(Test-Path (Join-Path $output $relative))) { throw "输出缺少必需文件：$relative" } # 检查资源复制和 DLL 链接确实生效。
 }
 python $vendor verify --resources (Join-Path $output "Resources") --platform windows-x86_64 --staged # 核对实际输出，发现旧 SDK 残留时返回错误。

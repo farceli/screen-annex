@@ -19,15 +19,24 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(AndroidRelease)' == 'true'">
+    <!-- 面向公开分发的 Android 版带齐 WinUI 运行时，并排除只供鸿蒙使用的播放器。 -->
+    <DefineConstants>$(DefineConstants);ANDROID_RELEASE</DefineConstants>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250909003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AndroidRelease)' != 'true'">
     <!-- WinUI 包已包含核心 API，不能同时引用同名核心程序集。 -->
     <PackageReference Include="LibVLCSharp.WinUI" Version="3.10.2" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(AndroidRelease)' != 'true'">
     <!-- 先在 core 目录构建 Windows MSVC 目标的 Release DLL。XML 注释不能包含连续连字符。 -->
     <None Include="..\..\core\target\x86_64-pc-windows-msvc\release\hosmirror_core.dll"
           Condition="Exists('..\..\core\target\x86_64-pc-windows-msvc\release\hosmirror_core.dll')"
@@ -37,6 +46,11 @@
           Condition="!Exists('..\..\core\target\x86_64-pc-windows-msvc\release\hosmirror_core.dll') And Exists('..\..\core\target\release\hosmirror_core.dll')"
           CopyToOutputDirectory="PreserveNewest"
           Link="hosmirror_core.dll" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AndroidRelease)' == 'true'">
+    <Page Remove="MirrorWindow.xaml" />
+    <Compile Remove="MirrorWindow.xaml.cs" />
   </ItemGroup>
 
   <ItemGroup>

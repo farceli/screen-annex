@@ -39,7 +39,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var androidDevices: [AndroidDevice] = [] // Android 与鸿蒙列表分别维护，序列号不会串用后端。
     @Published var discoveryMessage: String? // 一种后端失败时仍保留另一种后端的设备。
     @Published private(set) var isDiscovering = false // 自动打开仍需等两个后端都确认设备数量。
-    @Published var wirelessPlatform = WirelessPlatform.harmony // 默认保持现有鸿蒙无线连接方式。
+    @Published var wirelessPlatform = WirelessPlatform.defaultPlatform
     @Published var pairingAddress = "" // Android 配对端口与连接端口分别填写。
     @Published var pairingCode = "" // 六位配对码只保存在内存，不写入偏好或日志。
     @Published var wirelessBusy = false // 防止重复提交配对和连接命令。
@@ -89,10 +89,12 @@ final class SessionStore: ObservableObject {
         Task { [weak self] in
             var issues: [String] = [] // 将两个独立后端的结果合并为非阻塞提示。
             await withTaskGroup(of: DiscoveryResult.self) { group in
-                group.addTask {
-                    // 未安装可选的鸿蒙组件时，Android 设备列表仍可正常使用。
-                    guard FileManager.default.isExecutableFile(atPath: hdc.binary.path) else { return .harmony(.success([])) }
-                    return .harmony(Result { try hdc.targets() }) // 读取真实的 HDC 在线和授权状态。
+                if ReleaseFeatures.harmonyEnabled {
+                    group.addTask {
+                        // 未安装可选的鸿蒙组件时，Android 设备列表仍可正常使用。
+                        guard FileManager.default.isExecutableFile(atPath: hdc.binary.path) else { return .harmony(.success([])) }
+                        return .harmony(Result { try hdc.targets() }) // 读取真实的 HDC 在线和授权状态。
+                    }
                 }
                 group.addTask { .android(Result { try Adb(directory: AndroidRuntime.directory).devices() }) } // 无需等待鸿蒙工具返回。
                 for await result in group {
@@ -159,7 +161,9 @@ final class SessionStore: ObservableObject {
 
     var historicalDevices: [KnownDevice] {
         let currentIDs = Set(currentDevices.map(\.device.id)) // 当前设备不会同时出现在历史。
-        return knownDevices.values.filter { $0.wasAvailable && !currentIDs.contains($0.id) }.sorted { $0.serial < $1.serial } // 排序稳定，展开时行不会跳动。
+        return knownDevices.values.filter {
+            (ReleaseFeatures.harmonyEnabled || $0.platform == .android) && $0.wasAvailable && !currentIDs.contains($0.id)
+        }.sorted { $0.serial < $1.serial } // 仅过滤视图，保留本机已有设备记录。
     }
 
     func setCustomName(_ name: String, for controller: DeviceController) {
@@ -314,7 +318,7 @@ final class SessionStore: ObservableObject {
         let address = wirelessAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !address.isEmpty else { return }
         guard !wirelessBusy else { return } // 同一时刻只处理一次配对或连接。
-        let platform = wirelessPlatform // 固定本次选择，切换界面不会改变已提交命令。
+        let platform = ReleaseFeatures.harmonyEnabled ? wirelessPlatform : .android // 固定本次选择与发行范围。
         let request = UUID() // 后发请求的结果优先。
         wirelessID = request
         wirelessBusy = true // 等待期间保留界面响应但禁用重复提交。
@@ -420,5 +424,6 @@ final class SessionStore: ObservableObject {
 enum WirelessPlatform: String, CaseIterable, Identifiable, Codable { // 界面选择不会改变现有鸿蒙设备数据结构。
     case harmony = "鸿蒙" // 使用 hdc tconn。
     case android = "Android" // 使用随包 ADB connect/pair。
+    static let defaultPlatform: Self = ReleaseFeatures.harmonyEnabled ? .harmony : .android
     var id: String { rawValue } // 为 Picker 提供稳定标识。
 }

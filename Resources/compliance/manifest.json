@@ -1,11 +1,11 @@
 {
   "scrcpy_version": "5.0.1",
   "files": {
-    "compliance/ADB-SOURCES.md": "daab8ca44715d2811f43aa14a2c1a39b6d5394953316b6a934ab69efdf2f593d",
+    "compliance/ADB-SOURCES.md": "7ff6b3bd99b6fcf86e7b08ea63af0c97dacae021ff3afeb66df75b079dd1d925",
     "compliance/REBUILDING.md": "d3981b8ff1a83309dfa4c5cc17831c2467bfdb6297a5bfee1968f7f86f83cc91",
     "compliance/SCRCPY_CHANGES.md": "306e5a87d07e9d41f023f268e12a22e7c3e104bd2d298c22387130429846381f",
     "compliance/THIRD_PARTY_NOTICES.txt": "6df37f210d7411a6d56fa1f9d65458a18647afb8978600f77d3ec21d4bf2d6f6",
-    "compliance/THIRD_PARTY_TERMS.md": "2a6d48a2734b72ad56c578d263079590eb66c94807872066069b0ffb09af174a",
+    "compliance/THIRD_PARTY_TERMS.md": "66012ef32d12bf094bec15b0f0c33aec30a51104e3861ee04ce84b447a3beccf",
     "compliance/build_libusb_macos.sh": "1065c0f23787643d1b90cb7252bd41a6cdc062919c855aece526185ab3a769bb",
     "compliance/licenses/ADB-NOTICES.txt": "31cae917e080af63d34ca76b4cc221f0396ba727ee54a2cc8eb4f433bc0924e0",
     "compliance/licenses/FFmpeg-LGPL-2.1.txt": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
@@ -17,7 +17,7 @@
     "compliance/rebuild_scrcpy.sh": "80b954f10f85d9362648de20f5a3c802ccff653861e07e2bc7b55219cb508a61",
     "compliance/scrcpy-macos-titlebar.patch": "05c585d7eeb3aee7b07879c96a086a057e5a1666b301c99379008e96eea0968e",
     "compliance/scrcpy-windows-events.patch": "b8d7771c3767c25da8ee1b94c71644b9d0013d591d763c3a4f309c6bf9dd2d4a",
-    "compliance/scrcpy.lock.json": "9e6e9e6794b4381484e6339a41a1a67500df820bfe04556a6f62821dd7ae5192",
+    "compliance/scrcpy.lock.json": "32a581ebabc5dca944a32789f5750d47a733189254abed7b062b3bda2280ce25",
     "compliance/sources/dav1d-1.5.4.tar.xz": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5",
     "compliance/sources/ffmpeg-9.0.2.tar.xz": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
     "compliance/sources/libusb-1.0.30.tar.gz": "2ae28adb0bb9558c86135c4e1c11b320b0805461e207a64a6e520a114094bf07",
