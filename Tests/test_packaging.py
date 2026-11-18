@@ -20,7 +20,7 @@ class PackagingTests(unittest.TestCase):
         (self.root / "scripts").mkdir()  # 与真实项目保持相同脚本相对路径。
         (self.root / "bin").mkdir()  # 测试命令只存在于隔离 PATH。
         self.trace = self.root / "trace"  # 记录真实脚本调用的先后顺序。
-        for name in ("notarize.sh", "package-dmg.sh"):
+        for name in ("notarize.sh", "package-dmg.sh", "dmg-layout.py"):
             shutil.copy2(ROOT / "scripts" / name, self.root / "scripts" / name)  # 使用未改写的生产编排脚本。
         self.write_executable("scripts/vendor_scrcpy.py", "import os, sys\nsys.exit(int(os.environ.get('COMPLIANCE_RESULT', '0')))\n")  # 材料校验器独立测试，此处只控制实际打包脚本的通过/失败分支。
         (self.root / "Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": "0.1"}))  # 为 build 替身提供版本。
@@ -43,24 +43,29 @@ case "$*" in
     case "$target" in *.app) echo developer > "$target/signature" ;; esac ;;
 esac
 ''')
-        self.write_executable("bin/diskutil", "#!/bin/sh\n# 强制走可预测的镜像后备命令。\nexit 1\n")
-        self.write_executable("bin/hdiutil", '''#!/bin/sh
-# 镜像内容记录封装瞬间的 App 签名，检测是否发生二次重建。
-echo package >> "$TRACE"
-source_folder="" # 原脚本直接封装 App 目录会丢失外层包名。
-take_source=0 # 标记下一个参数是否为镜像源目录。
-for argument do # 按原命令顺序解析参数。
-  if [ "$take_source" = 1 ]; then
-    source_folder="$argument" # 保留包含空格的路径。
-    take_source=0 # 只消费一个参数。
-  fi
-  if [ "$argument" = "-srcfolder" ]; then
-    take_source=1 # 下一项提供真正的镜像源目录。
-  fi
-done
-test -f "$source_folder/Screen Annex.app/Contents/Info.plist" || exit 1 # 镜像根目录必须能直接看到 App。
-for target do :; done
-cp "$source_folder/Screen Annex.app/signature" "$target" # 检查实际封装的暂存副本签名。
+        self.write_executable("bin/dmgbuild.py", '''
+import argparse
+import os
+import runpy
+from pathlib import Path
+
+# 执行真实布局配置，并记录交给打包器时的 App 签名。
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-s", required=True)
+    parser.add_argument("-D", action="append", required=True)
+    parser.add_argument("volume")
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    defines = dict(entry.split("=", 1) for entry in args.D)
+    settings = runpy.run_path(args.s, init_globals={"defines": defines})
+    app = Path(settings["files"][0])
+    assert app.name == "Screen Annex.app"
+    assert (app / "Contents/Info.plist").is_file()
+    assert settings["symlinks"]["Applications"] == "/Applications"
+    args.output.write_text((app / "signature").read_text())
+    with Path(os.environ["TRACE"]).open("a") as trace:
+        trace.write("package\\n")
 ''')
         self.write_executable("bin/xcrun", '''#!/bin/sh
 # 返回结构化审核结果，禁止调用真实 notarytool。
@@ -72,7 +77,7 @@ case "$1" in notarytool) printf '{"status":"%s"}\\n' "${NOTARY_STATUS:-Accepted}
 echo assess >> "$TRACE"
 exit "${SPCTL_RESULT:-0}"
 ''')
-        self.env = dict(os.environ, PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"], TRACE=str(self.trace), DEVELOPER_ID="Test Developer", APPLE_ID="test@example.invalid", TEAM_ID="TEST", APP_PASSWORD="test-only")  # 所有身份均为无效测试值。
+        self.env = dict(os.environ, PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"], PYTHONPATH=str(self.root / "bin"), TRACE=str(self.trace), DEVELOPER_ID="Test Developer", APPLE_ID="test@example.invalid", TEAM_ID="TEST", APP_PASSWORD="test-only")  # 所有身份均为无效测试值。
 
     def write_executable(self, relative, body):
         path = self.root / relative  # 仅写入本测试的临时目录。

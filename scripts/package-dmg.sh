@@ -14,6 +14,10 @@ case "${1:-}" in
   --no-build) test -d "$APP" ;; # 只封装现有 App，保留其签名。
   *) echo "usage: $0 [--no-build [--separate-adb-source|--separate-sources]]" >&2; exit 2 ;;
 esac
+if ! python3 -c 'import dmgbuild' 2>/dev/null; then
+  echo 'Install the DMG packaging tool with: python3 -m pip install dmgbuild==1.6.7' >&2
+  exit 1
+fi
 case "$(uname -m)" in arm64) ANDROID_PLATFORM=macos-aarch64 ;; x86_64) ANDROID_PLATFORM=macos-x86_64 ;; *) exit 1 ;; esac # 不把其他架构的旧产物误当成本机构建。
 SOURCE_ARGS=()
 if [[ ${2:-} == --separate-sources ]]; then
@@ -24,19 +28,16 @@ python3 scripts/vendor_scrcpy.py verify --resources "$APP/Contents/Resources" --
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 DMG="$DIST/Screen Annex-${VERSION}.dmg"
 
-DMG_STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hosmirror-dmg.XXXXXX")" # 镜像源目录必须包含完整的 App 包。
+DMG_STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hosmirror-dmg.XXXXXX")"
 trap 'rm -rf "$DMG_STAGING_DIR"' EXIT # 正常完成和中途失败都回收本次专用暂存目录。
-ditto "$APP" "$DMG_STAGING_DIR/Screen Annex.app" # 保留签名、权限与包层级。
+LAYOUT_ARGS=(-D "app=$APP") # dmgbuild 使用 ditto 拷贝 App，保留现有签名。
 if [[ $# -lt 2 ]]; then
   python3 scripts/vendor_scrcpy.py adb-source --destination "$DMG_STAGING_DIR/Source Code" # 单独分发 DMG 时带上对应源码。
-fi # GitHub Release 统一上传同一份对应源码附件，三个应用包可单独下载。
-rm -f "$DMG"
-# macOS 26+ recommends `diskutil image create from`; hdiutil is the fallback.
-if ! diskutil image create from --volumeName "Screen Annex" --format UDZO \
-    "$DMG_STAGING_DIR" "$DMG" >/dev/null 2>&1; then # 从父目录封装，防止把 Contents 直接写到镜像根目录。
-  hdiutil create -volname "Screen Annex" -srcfolder "$DMG_STAGING_DIR" \
-    -ov -format UDZO "$DMG" >/dev/null
+  LAYOUT_ARGS+=(-D "source=$DMG_STAGING_DIR/Source Code")
 fi
+# 在自动构建中直接写入 Finder 布局，无需启动 Finder。
+python3 -m dmgbuild -s scripts/dmg-layout.py "${LAYOUT_ARGS[@]}" "Screen Annex" "$DMG_STAGING_DIR/Screen Annex.dmg"
+mv -f "$DMG_STAGING_DIR/Screen Annex.dmg" "$DMG"
 
 echo "==> $DMG"
 du -sh "$DMG"

@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install DMG layout tool
+        run: python3 -m pip install dmgbuild==1.6.7
       - name: Prepare locked Android runtime
         run: python3 scripts/vendor_scrcpy.py install --download
       - name: Build and package the ad-hoc signed Android app
@@ -46,6 +48,14 @@ jobs:
           dmg="release-assets/Screen-Annex-macos-$ARCHITECTURE.dmg"
           mv dist/Screen\ Annex-*.dmg "$dmg"
           hdiutil verify "$dmg"
+          # 直接校验镜像内容，防止布局缺失或打包后 App 签名失效。
+          mount_dir="$(mktemp -d)"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$dmg" >/dev/null
+          trap 'hdiutil detach "$mount_dir" -quiet' EXIT
+          test "$(readlink "$mount_dir/Applications")" = /Applications
+          test -s "$mount_dir/.DS_Store"
+          test -s "$mount_dir/.background.tiff"
+          codesign --verify --deep --strict "$mount_dir/Screen Annex.app"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.architecture }}
@@ -138,10 +148,10 @@ jobs:
           tag="v$(python3 -c 'import plistlib; print(plistlib.load(open("Info.plist", "rb"))["CFBundleShortVersionString"])')"
           cd release-assets
           files=(Screen-Annex-macos-arm64.dmg Screen-Annex-macos-x64.dmg Screen-Annex-windows-x64.zip Screen-Annex-corresponding-source.zip)
-          sha256sum "${files[@]}" > SHA256SUMS.txt
+          expected_checksums=$(sha256sum "${files[@]}")
           gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" \
             --title "Screen Annex $tag · Android 预览版" --notes-file ../docs/RELEASE_NOTES.md
-          gh release upload "$tag" "${files[@]}" SHA256SUMS.txt
+          gh release upload "$tag" "${files[@]}"
           # 只有全部附件已上传且 GitHub 计算的摘要与构建结果一致，才公开草稿。
           release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[] | (.digest | ltrimstr("sha256:")) + "  " + .name' > uploaded.txt
@@ -150,5 +160,5 @@ jobs:
               printf 'Release asset missing or has a different checksum: %s\n' "$expected" >&2
               exit 1
             fi
-          done < <(cat SHA256SUMS.txt; sha256sum SHA256SUMS.txt)
+          done <<< "$expected_checksums"
           gh release edit "$tag" --draft=false

@@ -12,7 +12,7 @@ Windows 需要 Visual Studio 的 Windows 应用开发和 MSVC 工具、.NET 8 SD
 
 [Release Android desktop apps](.github/workflows/release.yml) 在 `main` 手动运行后，使用当前版本号打包 macOS 和 Windows 的 Android 版本。验证完成后，工作流会把应用、校验值和合并后的 ADB 与 scrcpy 对应源码一起发布到同一个 GitHub Release。
 
-若在 GitHub 以外单独分发本地 DMG，可先用 `python3 scripts/vendor_scrcpy.py adb-source --download --destination .build/adb-sources` 准备对应源码，再执行 `./scripts/package-dmg.sh`，让镜像包含完整的对应源码。需要 Developer ID 签名和公证时可使用 [notarize.sh](scripts/notarize.sh)。
+本地打包 DMG 前，在 Python 环境中用 `python3 -m pip install dmgbuild==1.6.7` 安装排版工具。若在 GitHub 以外单独分发本地 DMG，可先用 `python3 scripts/vendor_scrcpy.py adb-source --download --destination .build/adb-sources` 准备对应源码，再执行 `./scripts/package-dmg.sh`，让镜像包含完整的对应源码。需要 Developer ID 签名和公证时可使用 [notarize.sh](scripts/notarize.sh)。
 
 ## 验证改动
 
