@@ -75,9 +75,9 @@ finally { if (Directory.Exists(sdkFixture)) Directory.Delete(sdkFixture, recursi
 
 if (Environment.GetEnvironmentVariable("SCREEN_ANNEX_TEST_VLC_PACKAGE") is string package)
 {
-    string directory = Path.Combine(Path.GetTempPath(), "screen-annex-vlc-" + Guid.NewGuid());
-    try { LibVlcRuntime.Extract(package, directory); }
-    finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    string vlcFixtureDirectory = Path.Combine(Path.GetTempPath(), "screen-annex-vlc-" + Guid.NewGuid());
+    try { LibVlcRuntime.Extract(package, vlcFixtureDirectory); }
+    finally { if (Directory.Exists(vlcFixtureDirectory)) Directory.Delete(vlcFixtureDirectory, recursive: true); }
 }
 if (OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("SCREEN_ANNEX_TEST_VLC_RUNTIME") == "1")
 {
