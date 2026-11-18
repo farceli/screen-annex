@@ -143,7 +143,7 @@ jobs:
           gh release upload "$tag" "${files[@]}" SHA256SUMS.txt
           # 只有全部附件已上传且 GitHub 计算的摘要与构建结果一致，才公开草稿。
           release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
-          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[] | "\(.digest | sub(\"^sha256:\"; \"\"))  \(.name)"' > uploaded.txt
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[] | (.digest | ltrimstr("sha256:")) + "  " + .name' > uploaded.txt
           while IFS= read -r expected; do
             if ! grep -Fqx "$expected" uploaded.txt; then
               printf 'Release asset missing or has a different checksum: %s\n' "$expected" >&2
