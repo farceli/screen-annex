@@ -49,12 +49,27 @@ if ($AndroidRelease) {
         $packagePath = $assets.packageFolders.Keys | ForEach-Object { Join-Path $_ $relative } |
             Where-Object { Test-Path $_ -PathType Container } | Select-Object -First 1
         if (!$packagePath) { throw "未找到 $package $version 的 NuGet 包。" }
-        $notices = Get-ChildItem $packagePath -File | Where-Object { $_.Name -match '^(license|notice|third[-_ ]?party[-_ ]?notices)\.txt$' }
+        $noticeDirectory = Join-Path $output "Licenses/$package"
+        New-Item $noticeDirectory -ItemType Directory -Force | Out-Null
+        if ($package -eq 'Microsoft.Windows.SDK.NET.Ref') {
+            # 此包的 nuspec 指向官方 Windows SDK 条款，包内没有单独的许可或声明文件。
+            $nuspec = Get-ChildItem $packagePath -Filter '*.nuspec' | Select-Object -First 1
+            [xml]$metadata = Get-Content $nuspec.FullName -Raw
+            $url = $metadata.package.metadata.licenseUrl
+            if ($url -ne 'https://aka.ms/WinSDKLicenseURL') { throw "Windows SDK 许可链接已变更。" }
+            Copy-Item $nuspec.FullName -Destination $noticeDirectory
+            @(
+                "Microsoft.Windows.SDK.NET.Ref $version - Copyright Microsoft Corporation",
+                "Use of the included Microsoft components is subject to the Windows SDK license terms.",
+                "License: $url",
+                "Redistributable files: https://learn.microsoft.com/en-us/legal/windows-sdk/redist#microsoftwindowssdknetref"
+            ) | Set-Content -Encoding utf8 (Join-Path $noticeDirectory 'LICENSE-INFO.txt')
+            continue
+        }
+        $notices = @(Get-ChildItem $packagePath -File | Where-Object { $_.Name -match '^(license|notice|third[-_ ]?party[-_ ]?notices)\.txt$' })
         if (!($notices | Where-Object { $_.Name -match '^license\.' }) -or $notices.Count -lt 2) {
             throw "$package $version 缺少许可或第三方声明文件。"
         }
-        $noticeDirectory = Join-Path $output "Licenses/$package"
-        New-Item $noticeDirectory -ItemType Directory -Force | Out-Null
         $notices | Copy-Item -Destination $noticeDirectory
     }
 } else {

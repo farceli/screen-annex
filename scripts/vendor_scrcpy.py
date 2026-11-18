@@ -200,7 +200,7 @@ def verify(resources, platform, signed, *, staged=False):
         if signed and name.startswith("scrcpy/macos-") and path.name in {"scrcpy", "adb"}:
             subprocess.run(["codesign", "--verify", "--strict", str(path)], check=True, capture_output=True)  # 签名必须有效，并且只允许签名字节发生变化。
             expected_code = client["code_sha256"] if client else lock["adb"]["binaries"]["macos"]["code_sha256"]
-            if code_digest(path) != expected_code:
+            if digest(path) != sha and code_digest(path) != expected_code:
                 raise ValueError(f"重签名后代码内容发生改变：{name}")  # 不能用任意有效签名掩盖真正的代码修改。
         elif digest(path) != sha:
             raise ValueError(f"文件校验失败：{name}")  # 源码、许可证、server、DLL 和其余文件必须逐字节一致。
@@ -213,6 +213,7 @@ def verify(resources, platform, signed, *, staged=False):
 def stage_adb_source(cache, destination, download):
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     adb = lock["adb"]
+    cache.mkdir(parents=True, exist_ok=True)  # 独立源码任务从干净检出运行，未安装二进制时也能下载。
     source = checked_file(cache, adb["source"], download, command="adb-source", timeout=1800)
     dependencies = [checked_file(cache, entry, download, command="adb-source") for entry in adb["source_dependencies"]]
     destination.mkdir(parents=True, exist_ok=True)
