@@ -102,7 +102,7 @@ public sealed partial class MirrorWindow : Window
             _ = CloseAsync();
         };
         _scrollEnd.Tick += (_, _) => { _scrollEnd.Stop(); EndScroll(); };
-        Video.Initialized += (_, _) => InitializeVideo();
+        Video.Initialized += (_, _) => _initialized.TrySetResult();
         AddShortcut(VirtualKey.T, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, () =>
         {
             PinButton.IsChecked = !IsPinned;
@@ -120,19 +120,22 @@ public sealed partial class MirrorWindow : Window
         Root.KeyboardAccelerators.Add(accelerator);
     }
 
-    private void InitializeVideo()
+    private async Task InitializeVideoAsync(CancellationToken token)
     {
-        if (_closing || _initialized.Task.IsCompleted) return;
-        try
-        {
-            Core.Initialize();
-            var options = new List<string>(Video.SwapChainOptions) { "--no-audio", "--no-video-title-show" };
-            _vlc = new LibVLC(options.ToArray());
-            _player = new MediaPlayer(_vlc);
-            Video.MediaPlayer = _player;
-            _initialized.TrySetResult();
-        }
-        catch (Exception error) { _initialized.TrySetException(error); }
+        if (_player is not null) return;
+#if HARMONY_RELEASE
+        SetConnecting("正在准备 Windows 播放组件…");
+        string directory = await LibVlcRuntime.PrepareAsync(token);
+        token.ThrowIfCancellationRequested();
+        Core.Initialize(directory);
+#else
+        await Task.CompletedTask;
+        Core.Initialize();
+#endif
+        var options = new List<string>(Video.SwapChainOptions) { "--no-audio", "--no-video-title-show" };
+        _vlc = new LibVLC(options.ToArray());
+        _player = new MediaPlayer(_vlc);
+        Video.MediaPlayer = _player;
     }
 
     public void Show() { Activate(); WindowNative.Show(Handle); }
@@ -198,6 +201,7 @@ public sealed partial class MirrorWindow : Window
         try
         {
             await _initialized.Task.WaitAsync(TimeSpan.FromSeconds(12), token);
+            await InitializeVideoAsync(token);
             while (!token.IsCancellationRequested)
             {
                 // USB 与无线切换后，用同一硬件身份找到当前可用的连接标识。

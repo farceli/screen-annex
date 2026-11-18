@@ -1,4 +1,4 @@
-name: Release Android desktop apps
+name: Release desktop apps
 
 on:
   workflow_dispatch:
@@ -12,6 +12,7 @@ concurrency:
 
 jobs:
   macos:
+    if: github.ref != 'refs/heads/feature/harmony-windows-release'
     strategy:
       matrix:
         include:
@@ -64,6 +65,7 @@ jobs:
           compression-level: 0
 
   windows:
+    if: github.ref != 'refs/heads/feature/harmony-windows-release'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,6 +110,7 @@ jobs:
           compression-level: 0
 
   corresponding-source:
+    if: github.ref != 'refs/heads/feature/harmony-windows-release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -162,3 +165,101 @@ jobs:
             fi
           done <<< "$expected_checksums"
           gh release edit "$tag" --draft=false
+
+  windows-harmony:
+    if: github.ref == 'refs/heads/feature/harmony-windows-release'
+    runs-on: windows-latest
+    env:
+      SCREEN_ANNEX_TEST_VLC_RUNTIME: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Prepare locked Android components
+        run: python scripts/vendor_scrcpy.py install --download
+      - name: Build self-contained HarmonyOS app
+        run: ./windows/build.ps1 -HarmonyRelease -SeparateSources
+      - name: Verify automatic setup and native playback initialization
+        run: dotnet run --project Tests/AndroidBackendTests/AndroidBackendTests.csproj
+      - name: Verify app startup and package Windows x64
+        run: |
+          $app = Resolve-Path 'dist/harmony-windows-x64'
+          & "$app/Resources/scrcpy/windows-x86_64/adb.exe" version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled ADB failed" }
+          $process = Start-Process -FilePath "$app/ScreenAnnex.exe" -WorkingDirectory $app -PassThru
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Screen Annex exited during startup ($($process.ExitCode))" }
+              if ($process.MainWindowHandle -ne [IntPtr]::Zero) { break }
+              Start-Sleep -Seconds 1
+            }
+            if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw "Screen Annex did not open its main window" }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -InputObject $process }
+          }
+          New-Item release-assets -ItemType Directory
+          Compress-Archive -Path "$app/*" -DestinationPath release-assets/Screen-Annex-HarmonyOS-windows-x64.zip
+      - name: Package exact Windows and LibVLCSharp sources
+        run: |
+          New-Item windows-source -ItemType Directory
+          git archive --format=zip --prefix=Screen-Annex/ --output=windows-source/Screen-Annex-source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Unable to package Screen Annex sources" }
+          $revision = '3082c09ca955131c705fc4767fde03e9c4a14999'
+          $source = "windows-source/LibVLCSharp-3.10.2.tar.gz"
+          curl.exe --fail --location --retry 3 "https://codeload.github.com/videolan/libvlcsharp/tar.gz/$revision" --output $source
+          if ($LASTEXITCODE -ne 0 -or (Get-FileHash $source -Algorithm SHA256).Hash -ne 'B9E12CBCA8038FC78B468F53DA80C0FB24F01963CB3C7205A23ABBC7F832B79F') {
+            throw "LibVLCSharp source checksum mismatch"
+          }
+          Copy-Item windows/compliance/* windows-source
+          Compress-Archive -Path windows-source/* -DestinationPath release-assets/Screen-Annex-Windows-corresponding-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-harmony-release
+          path: release-assets/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  publish-windows-harmony:
+    needs: windows-harmony
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v0.1.2-harmonyos.1
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-harmony-release
+          path: release-assets
+      - name: Verify and add Windows assets to the existing HarmonyOS release
+        run: |
+          set -euo pipefail
+          cd release-assets
+          release_id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)
+          assets_url="repos/$GITHUB_REPOSITORY/releases/$release_id/assets"
+          zip -T Screen-Annex-HarmonyOS-windows-x64.zip
+          zip -T Screen-Annex-Windows-corresponding-source.zip
+          # 先发布对应源码，再让 Windows 安装包可下载。同摘要的重试可直接复用附件。
+          for file in Screen-Annex-Windows-corresponding-source.zip Screen-Annex-HarmonyOS-windows-x64.zip; do
+            expected="sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            actual=$(gh api "$assets_url" --jq ".[] | select(.name == \"$file\") | .digest")
+            if [[ -z "$actual" ]]; then
+              gh release upload "$TAG" "$file" --repo "$GITHUB_REPOSITORY"
+              actual=$(gh api "$assets_url" --jq ".[] | select(.name == \"$file\") | .digest")
+            fi
+            test "$actual" = "$expected"
+          done
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          if ! grep -Fq 'Screen-Annex-Windows-corresponding-source.zip' notes.md; then
+            printf '\n- Windows x64 支持鸿蒙投屏。装好 DevEco Testing 后由 App 自动配置。首次投屏需联网，App 会自动从 NuGet 准备播放组件。\n- [Windows 对应源码](https://github.com/%s/releases/download/%s/Screen-Annex-Windows-corresponding-source.zip)\n' "$GITHUB_REPOSITORY" "$TAG" >> notes.md
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Screen Annex v0.1.2 · 鸿蒙预览版" --notes-file notes.md

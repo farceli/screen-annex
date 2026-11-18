@@ -1,12 +1,14 @@
 # 默认构建开发版。Android 发行版自带运行时，单独生成全新的输出目录。
-param([switch]$IncludeAdbSource, [switch]$AndroidRelease, [switch]$SeparateSources)
+param([switch]$IncludeAdbSource, [switch]$AndroidRelease, [switch]$HarmonyRelease, [switch]$SeparateSources)
 
 $ErrorActionPreference = "Stop" # PowerShell 自身操作失败时立即停止。
 $root = Split-Path -Parent $PSScriptRoot # 项目根目录。
 $app = Join-Path $PSScriptRoot "HosMirror.Windows" # WinUI 工程目录。
-$output = Join-Path $root $(if ($AndroidRelease) { "dist\android-windows-x64" } else { "dist\windows-x64" })
-if ($AndroidRelease -and (Test-Path $output)) { throw "请为 Android 发行版使用空的输出目录：$output" } # 防止旧文件进入公开包。
-if ($SeparateSources -and (!$AndroidRelease -or $IncludeAdbSource)) { throw "单独交付源码仅用于 GitHub Android 发行版。" }
+if ($AndroidRelease -and $HarmonyRelease) { throw "请选择一个发行目标。" }
+$publish = $AndroidRelease -or $HarmonyRelease
+$output = Join-Path $root $(if ($AndroidRelease) { "dist\android-windows-x64" } elseif ($HarmonyRelease) { "dist\harmony-windows-x64" } else { "dist\windows-x64" })
+if ($publish -and (Test-Path $output)) { throw "请为发行版使用空的输出目录：$output" } # 防止旧文件进入公开包。
+if ($SeparateSources -and (!$publish -or $IncludeAdbSource)) { throw "单独交付源码仅用于 GitHub 发行版。" }
 $sourceArgs = @() # 普通构建保留随包的 scrcpy 对应源码。
 $separateSourcesProperty = 'false'
 if ($SeparateSources) {
@@ -27,10 +29,11 @@ if (!$AndroidRelease) {
 
 Push-Location $app # 切换到 WinUI 工程。
 try {
-    if ($AndroidRelease) {
+    if ($publish) {
         $version = python -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1], "rb"))["CFBundleShortVersionString"])' (Join-Path $root 'Info.plist')
         if ($LASTEXITCODE -ne 0) { throw "无法读取 Screen Annex 发行版本。" }
-        dotnet publish -c Release -p:Platform=x64 -p:AndroidRelease=true "-p:SeparateSources=$separateSourcesProperty" "-p:Version=$version" -r win-x64 --self-contained true -o $output
+        $target = if ($HarmonyRelease) { "-p:HarmonyRelease=true" } else { "-p:AndroidRelease=true" }
+        dotnet publish -c Release -p:Platform=x64 $target "-p:SeparateSources=$separateSourcesProperty" "-p:Version=$version" -r win-x64 --self-contained true -o $output
     } else {
         dotnet build -c Release -p:Platform=x64 -r win-x64 --self-contained false -o $output
     }
@@ -38,11 +41,11 @@ try {
 } finally { Pop-Location } # 恢复原目录。
 
 $required = @("ScreenAnnex.exe", "LICENSE")
-if ($AndroidRelease) {
+if ($publish) {
     $required += @("hostfxr.dll", "coreclr.dll", "Microsoft.UI.Xaml.dll", "Microsoft.WindowsAppRuntime.dll")
-    # 最终发布材料拒绝任何来自鸿蒙播放器或协议后端的残留文件。
-    $harmonyFiles = Get-ChildItem $output -File -Recurse | Where-Object { $_.Name -match '^(LibVLC|VideoLAN|hosmirror_core|hdc\.exe)' }
-    if ($harmonyFiles) { throw "Android 发行版包含鸿蒙依赖：$($harmonyFiles.Name -join ', ')" }
+    $excluded = if ($AndroidRelease) { '^(LibVLC|VideoLAN|hosmirror_core|hdc\.exe)' } else { '^(libvlc(?:core)?\.dll|hdc\.exe|libusb_shared\.dll)$|\.so$' }
+    $harmonyFiles = Get-ChildItem $output -File -Recurse | Where-Object { $_.Name -match $excluded }
+    if ($harmonyFiles) { throw "发行目录包含不应随包发布的鸿蒙组件：$($harmonyFiles.Name -join ', ')" }
 
     # 用实际解析的版本复制 Microsoft 再分发组件的原始许可和声明。
     $assets = Get-Content (Join-Path $app 'obj/project.assets.json') -Raw | ConvertFrom-Json -AsHashtable
@@ -79,8 +82,24 @@ if ($AndroidRelease) {
         }
         $notices | Copy-Item -Destination $noticeDirectory
     }
-} else {
+}
+if (!$AndroidRelease) {
     $required += "hosmirror_core.dll"
+}
+if ($HarmonyRelease) {
+    # 随包保留托管播放器和 Rust 依赖使用的许可文件。
+    $licenses = Join-Path $output "Licenses"
+    Copy-Item (Join-Path $PSScriptRoot "compliance/*") $licenses
+    $metadata = cargo metadata --manifest-path (Join-Path $root 'core/Cargo.toml') --locked --format-version 1 | ConvertFrom-Json -AsHashtable
+    if ($LASTEXITCODE -ne 0) { throw "无法读取 Rust 依赖许可。" }
+    foreach ($crate in $metadata.packages | Where-Object { $_.source }) {
+        $files = @(Get-ChildItem (Split-Path -Parent $crate.manifest_path) -File |
+            Where-Object { $_.Name -match '^(LICENSE|COPYING|NOTICE|UNLICENSE)' })
+        if ($files.Count -eq 0) { throw "$($crate.name) 缺少原始许可文件。" }
+        $directory = Join-Path $licenses "$($crate.name)-$($crate.version)"
+        New-Item $directory -ItemType Directory -Force | Out-Null
+        $files | Copy-Item -Destination $directory
+    }
 }
 foreach ($relative in $required) {
     if (!(Test-Path (Join-Path $output $relative))) { throw "输出缺少必需文件：$relative" } # 检查资源复制和 DLL 链接确实生效。

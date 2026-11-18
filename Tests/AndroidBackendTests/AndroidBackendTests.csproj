@@ -15,6 +15,7 @@
     <!-- 直接编译生产文件，避免测试复制一套实现。 -->
     <Compile Include="../../windows/HosMirror.Windows/DeviceTools.cs" Link="DeviceTools.cs" />
     <Compile Include="../../windows/HosMirror.Windows/HarmonySdk.cs" Link="HarmonySdk.cs" />
+    <Compile Include="../../windows/HosMirror.Windows/LibVlcRuntime.cs" Link="LibVlcRuntime.cs" />
     <Compile Include="../../windows/HosMirror.Windows/AndroidBackend.cs" Link="AndroidBackend.cs" />
   </ItemGroup>
 </Project>

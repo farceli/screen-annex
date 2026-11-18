@@ -19,10 +19,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(AndroidRelease)' == 'true' Or '$(HarmonyRelease)' == 'true'">
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(AndroidRelease)' == 'true'">
     <!-- 面向公开分发的 Android 版带齐 WinUI 运行时，并排除只供鸿蒙使用的播放器。 -->
     <DefineConstants>$(DefineConstants);ANDROID_RELEASE</DefineConstants>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(HarmonyRelease)' == 'true'">
+    <DefineConstants>$(DefineConstants);HARMONY_RELEASE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,7 +40,8 @@
   <ItemGroup Condition="'$(AndroidRelease)' != 'true'">
     <!-- WinUI 包已包含核心 API，不能同时引用同名核心程序集。 -->
     <PackageReference Include="LibVLCSharp.WinUI" Version="3.10.2" />
-    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
+    <!-- 鸿蒙发行版在首次使用时从 VideoLAN 的 NuGet 下载固定版本的原生库。 -->
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" Condition="'$(HarmonyRelease)' != 'true'" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(AndroidRelease)' != 'true'">

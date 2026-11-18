@@ -73,6 +73,21 @@ try
 }
 finally { if (Directory.Exists(sdkFixture)) Directory.Delete(sdkFixture, recursive: true); }
 
+if (Environment.GetEnvironmentVariable("SCREEN_ANNEX_TEST_VLC_PACKAGE") is string package)
+{
+    string directory = Path.Combine(Path.GetTempPath(), "screen-annex-vlc-" + Guid.NewGuid());
+    try { LibVlcRuntime.Extract(package, directory); }
+    finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+}
+if (OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("SCREEN_ANNEX_TEST_VLC_RUNTIME") == "1")
+{
+    // 使用发布版的下载入口从空缓存开始，再由 Windows 加载原生 DLL。
+    string runtime = await LibVlcRuntime.PrepareAsync(CancellationToken.None);
+    Require(await LibVlcRuntime.PrepareAsync(CancellationToken.None) == runtime, "播放器缓存未被复用");
+    VlcFixture.Verify(runtime);
+    Console.WriteLine("LibVLC 官方下载、缓存及 Windows 原生初始化检查通过。");
+}
+
 if (OperatingSystem.IsWindows()) { Console.WriteLine("设备解析、重连、路径与录制检查通过。"); return; } // 不在 Windows 上误执行 POSIX 脚本。
 var root = Path.Combine(Path.GetTempPath(), "hosmirror-android-" + Guid.NewGuid()); // 不访问真实 ADB 或手机。
 var directory = Path.Combine(root, "scrcpy", "windows-x86_64"); // 与生产安装包路径完全一致。
